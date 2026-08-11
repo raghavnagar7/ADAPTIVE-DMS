@@ -1,38 +1,27 @@
 """
 ADAPTIVE-DMS
+
 Real-Time Monitoring Dashboard
 
-v1.3.3
+Version:
+    v1.4
 
 Features:
-- Memory-safe session CSV reading
-- Current fatigue risk
-- Risk level
-- EAR
-- MAR
-- PERCLOS
-- Eye closure duration
-- Gaze direction
-- Head pose
-- Signal reliability
-- Safety intervention
-- Alert count
-- Fatigue-risk graph
-- EAR graph
-- PERCLOS graph
-- Head-pose graph
-- Reliability graph
-- Automatic refresh
-
-IMPORTANT:
-main.py remains the camera owner.
-This dashboard only reads the session CSV.
+    - Memory-safe CSV loading
+    - Live processed camera frame
+    - Fatigue risk
+    - Risk level
+    - EAR
+    - MAR
+    - PERCLOS
+    - Eye closure duration
+    - Gaze direction
+    - Head pose
+    - Signal reliability
+    - Safety intervention
+    - Alert count
+    - Live graphs
 """
-
-
-# =============================================================
-# IMPORTS
-# =============================================================
 
 import os
 import glob
@@ -50,9 +39,14 @@ import plotly.graph_objects as go
 
 MAX_ROWS = 1500
 
+LIVE_FRAME_PATH = os.path.join(
+    "logs",
+    "live_frame.jpg",
+)
+
 
 # =============================================================
-# PAGE CONFIGURATION
+# PAGE CONFIG
 # =============================================================
 
 st.set_page_config(
@@ -134,6 +128,7 @@ def find_latest_session():
     )
 
     if not files:
+
         return None
 
     return max(
@@ -151,27 +146,13 @@ def load_recent_data(
     file_path,
     file_modified_time,
 ):
-    """
-    Read only the latest portion of the CSV.
-
-    The main.py program continuously writes data.
-    Therefore we intentionally do NOT use:
-
-        pd.read_csv(file_path)
-
-    because that would attempt to load the entire
-    growing session into memory.
-    """
 
     try:
-
-        # -----------------------------------------------------
-        # Check file
-        # -----------------------------------------------------
 
         if not os.path.exists(
             file_path
         ):
+
             return pd.DataFrame()
 
         file_size = os.path.getsize(
@@ -179,10 +160,11 @@ def load_recent_data(
         )
 
         if file_size <= 0:
+
             return pd.DataFrame()
 
         # -----------------------------------------------------
-        # Read header separately
+        # Header
         # -----------------------------------------------------
 
         with open(
@@ -196,11 +178,13 @@ def load_recent_data(
             header_line = file.readline()
 
         if not header_line:
+
             return pd.DataFrame()
 
         header_line = header_line.strip()
 
         if not header_line:
+
             return pd.DataFrame()
 
         # -----------------------------------------------------
@@ -226,10 +210,6 @@ def load_recent_data(
 
             raw_data = file.read()
 
-        # -----------------------------------------------------
-        # Decode safely
-        # -----------------------------------------------------
-
         text = raw_data.decode(
             "utf-8",
             errors="ignore",
@@ -238,22 +218,18 @@ def load_recent_data(
         lines = text.splitlines()
 
         if len(lines) < 2:
+
             return pd.DataFrame()
 
-        # -----------------------------------------------------
-        # The first line may be incomplete because we started
-        # reading in the middle of the file.
-        #
-        # Discard it.
-        # -----------------------------------------------------
-
+        # First line can be partial.
         data_lines = lines[1:]
 
         if not data_lines:
+
             return pd.DataFrame()
 
         # -----------------------------------------------------
-        # Keep only latest rows
+        # Keep latest rows
         # -----------------------------------------------------
 
         if len(data_lines) > MAX_ROWS:
@@ -275,6 +251,7 @@ def load_recent_data(
         )
 
         if not headers:
+
             return pd.DataFrame()
 
         header_length = len(
@@ -282,7 +259,7 @@ def load_recent_data(
         )
 
         # -----------------------------------------------------
-        # Parse data rows
+        # Parse rows
         # -----------------------------------------------------
 
         reader = csv.reader(
@@ -294,25 +271,27 @@ def load_recent_data(
         for row in reader:
 
             if not row:
+
                 continue
 
-            # Ignore extremely short/incomplete rows
             if len(row) < 5:
+
                 continue
 
-            # Exact length
             if len(row) == header_length:
 
-                valid_rows.append(row)
+                valid_rows.append(
+                    row
+                )
 
-            # Extra columns
             elif len(row) > header_length:
 
                 valid_rows.append(
-                    row[:header_length]
+                    row[
+                        :header_length
+                    ]
                 )
 
-            # Missing columns
             else:
 
                 padded_row = (
@@ -328,11 +307,8 @@ def load_recent_data(
                 )
 
         if not valid_rows:
-            return pd.DataFrame()
 
-        # -----------------------------------------------------
-        # Create DataFrame
-        # -----------------------------------------------------
+            return pd.DataFrame()
 
         df = pd.DataFrame(
             valid_rows,
@@ -340,6 +316,7 @@ def load_recent_data(
         )
 
         if df.empty:
+
             return df
 
         # -----------------------------------------------------
@@ -347,6 +324,7 @@ def load_recent_data(
         # -----------------------------------------------------
 
         if "timestamp" not in df.columns:
+
             return pd.DataFrame()
 
         df["timestamp"] = pd.to_datetime(
@@ -361,6 +339,7 @@ def load_recent_data(
         )
 
         if df.empty:
+
             return df
 
         # -----------------------------------------------------
@@ -368,18 +347,31 @@ def load_recent_data(
         # -----------------------------------------------------
 
         numeric_columns = [
+
             "ear",
+
             "mar",
+
             "perclos",
+
             "blink_count",
+
             "blink_duration",
+
             "microsleep_duration",
+
             "pitch",
+
             "yaw",
+
             "roll",
+
             "gaze_away_duration",
+
             "reliability",
+
             "fatigue_risk",
+
             "eye_closure_duration",
         ]
 
@@ -397,8 +389,11 @@ def load_recent_data(
         # -----------------------------------------------------
 
         boolean_columns = [
+
             "eyes_closed",
+
             "microsleep",
+
             "alert_triggered",
         ]
 
@@ -423,7 +418,7 @@ def load_recent_data(
                 )
 
         # -----------------------------------------------------
-        # Elapsed time
+        # Elapsed seconds
         # -----------------------------------------------------
 
         df["elapsed_seconds"] = (
@@ -456,6 +451,7 @@ def safe_float(
     try:
 
         if pd.isna(value):
+
             return default
 
         return float(value)
@@ -477,6 +473,7 @@ def safe_text(
     try:
 
         if pd.isna(value):
+
             return default
 
         return str(value)
@@ -538,7 +535,7 @@ except Exception:
 
 
 # =============================================================
-# LOAD RECENT DATA
+# LOAD DATA
 # =============================================================
 
 df = load_recent_data(
@@ -550,8 +547,7 @@ df = load_recent_data(
 if df.empty:
 
     st.warning(
-        "The session CSV is currently being written "
-        "or no complete rows are available yet."
+        "Waiting for readable session data..."
     )
 
     st.info(
@@ -562,14 +558,64 @@ if df.empty:
 
 
 # =============================================================
-# LATEST ROW
+# LIVE CAMERA
+# =============================================================
+
+st.divider()
+
+st.subheader(
+    "🎥 Live Camera Monitoring"
+)
+
+if os.path.exists(
+    LIVE_FRAME_PATH
+):
+
+    try:
+
+        with open(
+            LIVE_FRAME_PATH,
+            "rb",
+        ) as image_file:
+
+            live_frame = image_file.read()
+
+        if live_frame:
+
+            st.image(
+                live_frame,
+                caption="Processed live camera feed",
+                use_container_width=True,
+            )
+
+        else:
+
+            st.info(
+                "Waiting for camera frame..."
+            )
+
+    except Exception:
+
+        st.warning(
+            "Unable to read live camera frame."
+        )
+
+else:
+
+    st.info(
+        "Waiting for main.py to start the camera..."
+    )
+
+
+# =============================================================
+# LATEST DATA
 # =============================================================
 
 latest = df.iloc[-1]
 
 
 # =============================================================
-# CURRENT NUMERIC VALUES
+# CURRENT VALUES
 # =============================================================
 
 fatigue_risk = safe_float(
@@ -699,13 +745,13 @@ else:
 
 
 # =============================================================
-# RISK STATUS
+# ALERT BANNER
 # =============================================================
 
-if risk_level in [
+if risk_level in (
     "HIGH",
     "CRITICAL",
-]:
+):
 
     alert_class = "alert-danger"
 
@@ -741,10 +787,6 @@ else:
     )
 
 
-# =============================================================
-# ALERT BANNER
-# =============================================================
-
 st.markdown(
     f'<div class="alert-banner '
     f'{alert_class}">'
@@ -755,7 +797,7 @@ st.markdown(
 
 
 # =============================================================
-# MAIN RISK CARD
+# RISK OVERVIEW
 # =============================================================
 
 left, right = st.columns(
@@ -765,31 +807,24 @@ left, right = st.columns(
 
 with left:
 
-    # ---------------------------------------------------------
-    # IMPORTANT:
-    # Use native Streamlit components here instead of nested
-    # HTML divs. This prevents HTML tags from appearing as text.
-    # ---------------------------------------------------------
-
     st.subheader(
         "🎯 Current Risk"
     )
 
     st.metric(
-        label="Risk Level",
-        value=risk_level,
+        "Risk Level",
+        risk_level,
     )
 
     st.metric(
-        label="Fatigue Risk",
-        value=f"{fatigue_risk:.2f}",
+        "Fatigue Risk",
+        f"{fatigue_risk:.2f}",
     )
 
-    # Visual status
-    if risk_level in [
+    if risk_level in (
         "HIGH",
         "CRITICAL",
-    ]:
+    ):
 
         st.error(
             "🚨 Driver attention required"
@@ -853,7 +888,7 @@ st.divider()
 
 
 # =============================================================
-# DRIVER MONITORING STATUS
+# DRIVER STATUS
 # =============================================================
 
 st.subheader(
@@ -993,15 +1028,12 @@ if "fatigue_risk" in df.columns:
         )
     )
 
-    # Risk thresholds
-    thresholds = [
+    for threshold, label in [
         (0.20, "Low"),
         (0.35, "Moderate"),
         (0.55, "High"),
         (0.75, "Critical"),
-    ]
-
-    for threshold, label in thresholds:
+    ]:
 
         fig_risk.add_hline(
             y=threshold,
@@ -1017,12 +1049,6 @@ if "fatigue_risk" in df.columns:
             1,
         ],
         height=420,
-        margin=dict(
-            l=30,
-            r=30,
-            t=30,
-            b=30,
-        ),
     )
 
     st.plotly_chart(
@@ -1039,10 +1065,6 @@ c1, c2 = st.columns(
     2
 )
 
-
-# =============================================================
-# EAR GRAPH
-# =============================================================
 
 with c1:
 
@@ -1085,10 +1107,6 @@ with c1:
         )
 
 
-# =============================================================
-# PERCLOS GRAPH
-# =============================================================
-
 with c2:
 
     st.subheader(
@@ -1130,7 +1148,6 @@ with c2:
 
 st.subheader(
     "🧭 Head Pose"
-
 )
 
 fig_pose = go.Figure()
@@ -1365,8 +1382,8 @@ with c3:
 st.divider()
 
 st.caption(
-    "ADAPTIVE-DMS v1.3.3 | "
-    "Memory-safe real-time dashboard"
+    "ADAPTIVE-DMS v1.4 | "
+    "Live Camera + Memory-Safe Dashboard"
 )
 
 st.caption(
@@ -1374,7 +1391,8 @@ st.caption(
 )
 
 st.caption(
-    "Dashboard refresh interval: approximately 2 seconds."
+    "Camera is owned by main.py. "
+    "Dashboard reads the processed frame."
 )
 
 
