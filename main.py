@@ -1,3 +1,22 @@
+"""
+ADAPTIVE-DMS
+Adaptive Multimodal Driver State Monitoring
+and Predictive Safety Intervention System
+
+Current version:
+    v0.3
+
+Implemented:
+    - Webcam input
+    - MediaPipe Face Mesh
+    - EAR
+    - MAR
+    - PERCLOS
+    - Blink detection
+    - Microsleep detection
+    - Head pose estimation
+"""
+
 import time
 
 import cv2
@@ -5,15 +24,26 @@ import cv2
 from src.camera import Camera
 from src.detector import FaceDetector
 from src.metrics import DriverMetrics
+from src.head_pose import HeadPoseEstimator
 
 
 def main():
-    print("=" * 60)
+
+    print("=" * 65)
     print("ADAPTIVE-DMS")
-    print("Adaptive Multimodal Driver State Monitoring System")
-    print("=" * 60)
+    print(
+        "Adaptive Multimodal Driver State Monitoring "
+        "and Predictive Safety Intervention System"
+    )
+    print("=" * 65)
+
     print("Starting camera...")
     print("Press Q to quit.")
+    print()
+
+    # ---------------------------------------------------------
+    # CAMERA
+    # ---------------------------------------------------------
 
     camera = Camera(
         source=0,
@@ -21,116 +51,343 @@ def main():
         height=540,
     )
 
+    # ---------------------------------------------------------
+    # FACE DETECTOR
+    # ---------------------------------------------------------
+
     detector = FaceDetector(
         min_detection_confidence=0.5,
         min_tracking_confidence=0.5,
     )
 
+    # ---------------------------------------------------------
+    # DRIVER METRICS
+    # ---------------------------------------------------------
+
     metrics = DriverMetrics(
         ear_threshold=0.21,
         mar_threshold=0.60,
         perclos_window_seconds=30,
+        microsleep_threshold=1.5,
     )
 
+    # ---------------------------------------------------------
+    # HEAD POSE
+    # ---------------------------------------------------------
+
+    head_pose = HeadPoseEstimator()
+
+    # ---------------------------------------------------------
+    # FPS
+    # ---------------------------------------------------------
+
+    previous_time = time.time()
+
     try:
+
         while True:
+
+            # -------------------------------------------------
+            # READ CAMERA
+            # -------------------------------------------------
+
             frame = camera.read()
 
             if frame is None:
-                print("Unable to read frame from camera.")
+
+                print(
+                    "Unable to read frame from camera."
+                )
+
                 break
 
-            results = detector.process(frame)
+            # -------------------------------------------------
+            # FPS
+            # -------------------------------------------------
+
+            current_time = time.time()
+
+            time_difference = (
+                current_time
+                - previous_time
+            )
+
+            if time_difference > 0:
+                fps = (
+                    1.0
+                    / time_difference
+                )
+            else:
+                fps = 0.0
+
+            previous_time = current_time
+
+            # -------------------------------------------------
+            # FACE DETECTION
+            # -------------------------------------------------
+
+            results = detector.process(
+                frame
+            )
 
             face_detected = bool(
                 results.multi_face_landmarks
             )
 
+            # -------------------------------------------------
+            # FACE FOUND
+            # -------------------------------------------------
+
             if face_detected:
 
                 face_landmarks = (
-                    results.multi_face_landmarks[0]
+                    results.multi_face_landmarks[
+                        0
+                    ]
                 )
 
-                landmarks = face_landmarks.landmark
+                landmarks = (
+                    face_landmarks.landmark
+                )
 
-                # Calculate driver-state metrics.
+                # -------------------------------------------------
+                # DRIVER METRICS
+                # -------------------------------------------------
+
                 values = metrics.calculate(
                     landmarks,
-                    timestamp=time.time(),
+                    timestamp=current_time,
                 )
 
-                # Draw face landmarks.
-                frame = detector.draw_landmarks(
-                    frame,
-                    results,
+                # -------------------------------------------------
+                # HEAD POSE
+                # -------------------------------------------------
+
+                pose = head_pose.estimate(
+                    landmarks,
+                    frame.shape[1],
+                    frame.shape[0],
                 )
 
-                # Display metrics.
+                # -------------------------------------------------
+                # DRAW LANDMARKS
+                # -------------------------------------------------
+
+                frame = (
+                    detector.draw_landmarks(
+                        frame,
+                        results,
+                    )
+                )
+
+                # -------------------------------------------------
+                # DISPLAY EAR
+                # -------------------------------------------------
+
                 cv2.putText(
                     frame,
                     f"EAR: {values['ear']:.3f}",
-                    (20, 40),
+                    (20, 35),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.65,
                     (0, 255, 0),
                     2,
                 )
+
+                # -------------------------------------------------
+                # DISPLAY MAR
+                # -------------------------------------------------
 
                 cv2.putText(
                     frame,
                     f"MAR: {values['mar']:.3f}",
-                    (20, 70),
+                    (20, 65),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.65,
                     (0, 255, 0),
                     2,
                 )
+
+                # -------------------------------------------------
+                # DISPLAY PERCLOS
+                # -------------------------------------------------
 
                 cv2.putText(
                     frame,
                     f"PERCLOS: {values['perclos']:.3f}",
-                    (20, 100),
+                    (20, 95),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.65,
                     (0, 255, 0),
                     2,
                 )
+
+                # -------------------------------------------------
+                # DISPLAY BLINKS
+                # -------------------------------------------------
 
                 cv2.putText(
                     frame,
                     f"Blinks: {values['blink_count']}",
-                    (20, 130),
+                    (20, 125),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.65,
                     (0, 255, 0),
                     2,
                 )
 
-                status = "EYES CLOSED" if values["eyes_closed"] else "EYES OPEN"
+                # -------------------------------------------------
+                # EYE STATE
+                # -------------------------------------------------
+
+                if values["eyes_closed"]:
+
+                    eye_status = "EYES CLOSED"
+
+                    eye_color = (
+                        0,
+                        165,
+                        255,
+                    )
+
+                else:
+
+                    eye_status = "EYES OPEN"
+
+                    eye_color = (
+                        0,
+                        255,
+                        0,
+                    )
 
                 cv2.putText(
                     frame,
-                    status,
-                    (20, 165),
+                    eye_status,
+                    (20, 160),
                     cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7,
-                    (0, 255, 255),
+                    0.65,
+                    eye_color,
                     2,
                 )
 
+                # -------------------------------------------------
+                # YAWNING
+                # -------------------------------------------------
+
                 if values["yawning"]:
+
                     cv2.putText(
                         frame,
                         "YAWNING",
-                        (20, 200),
+                        (20, 195),
                         cv2.FONT_HERSHEY_SIMPLEX,
                         0.7,
                         (0, 165, 255),
                         2,
                     )
 
+                # -------------------------------------------------
+                # MICROSLEEP
+                # -------------------------------------------------
+
+                if values["microsleep"]:
+
+                    cv2.putText(
+                        frame,
+                        (
+                            "MICROSLEEP: "
+                            f"{values['microsleep_duration']:.1f}s"
+                        ),
+                        (20, 230),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.7,
+                        (0, 0, 255),
+                        2,
+                    )
+
+                else:
+
+                    cv2.putText(
+                        frame,
+                        (
+                            "Eye closure: "
+                            f"{values['microsleep_duration']:.1f}s"
+                        ),
+                        (20, 230),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.55,
+                        (255, 255, 255),
+                        1,
+                    )
+
+                # -------------------------------------------------
+                # HEAD POSE
+                # -------------------------------------------------
+
+                if pose["valid"]:
+
+                    cv2.putText(
+                        frame,
+                        (
+                            f"Pitch: "
+                            f"{pose['pitch']:.1f}"
+                        ),
+                        (20, 265),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6,
+                        (255, 255, 0),
+                        2,
+                    )
+
+                    cv2.putText(
+                        frame,
+                        (
+                            f"Yaw: "
+                            f"{pose['yaw']:.1f}"
+                        ),
+                        (20, 295),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6,
+                        (255, 255, 0),
+                        2,
+                    )
+
+                    cv2.putText(
+                        frame,
+                        (
+                            f"Roll: "
+                            f"{pose['roll']:.1f}"
+                        ),
+                        (20, 325),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6,
+                        (255, 255, 0),
+                        2,
+                    )
+
+                # -------------------------------------------------
+                # FACE STATUS
+                # -------------------------------------------------
+
+                cv2.putText(
+                    frame,
+                    "FACE DETECTED",
+                    (
+                        20,
+                        frame.shape[0] - 50,
+                    ),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.65,
+                    (0, 255, 0),
+                    2,
+                )
+
+            # -------------------------------------------------
+            # NO FACE
+            # -------------------------------------------------
+
             else:
+
                 cv2.putText(
                     frame,
                     "NO FACE DETECTED",
@@ -141,33 +398,79 @@ def main():
                     2,
                 )
 
+            # -------------------------------------------------
+            # FPS
+            # -------------------------------------------------
+
             cv2.putText(
                 frame,
-                "ADAPTIVE-DMS | Press Q to quit",
-                (20, frame.shape[0] - 20),
+                f"FPS: {fps:.1f}",
+                (
+                    frame.shape[1] - 130,
+                    35,
+                ),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.6,
                 (255, 255, 255),
                 2,
             )
 
+            # -------------------------------------------------
+            # PROJECT NAME
+            # -------------------------------------------------
+
+            cv2.putText(
+                frame,
+                "ADAPTIVE-DMS | Press Q to quit",
+                (
+                    20,
+                    frame.shape[0] - 20,
+                ),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.55,
+                (255, 255, 255),
+                2,
+            )
+
+            # -------------------------------------------------
+            # DISPLAY
+            # -------------------------------------------------
+
             cv2.imshow(
                 "ADAPTIVE-DMS",
                 frame,
             )
 
+            # -------------------------------------------------
+            # KEYBOARD
+            # -------------------------------------------------
+
             key = cv2.waitKey(1) & 0xFF
 
             if key == ord("q"):
+
                 break
 
+    except KeyboardInterrupt:
+
+        print()
+        print(
+            "Program interrupted by user."
+        )
+
     finally:
+
         detector.close()
+
         camera.release()
+
         cv2.destroyAllWindows()
 
+        print()
+        print("=" * 65)
         print("Camera released.")
         print("ADAPTIVE-DMS stopped.")
+        print("=" * 65)
 
 
 if __name__ == "__main__":
