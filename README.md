@@ -2,27 +2,38 @@
 
 ## Adaptive Multimodal Driver State Monitoring and Predictive Safety Intervention System
 
-Major Project - B.Tech AIML
+### Major Project - B.Tech AIML
 
-### Project Goal
+## Project Overview
 
-An intelligent driver monitoring system that combines multimodal driver-state signals, reliability-aware adaptive fusion, temporal fatigue prediction, and adaptive safety intervention.
+ADAPTIVE-DMS is an intelligent driver monitoring system designed to detect, predict, and respond to driver fatigue using multimodal driver-state information.
 
-### Planned Components
+The system will extend our previous driver drowsiness detection project by introducing reliability-aware adaptive fusion, temporal fatigue prediction, and adaptive safety intervention.
+
+## Main Components
 
 - Facial landmark detection
-- EAR
-- MAR
+- Eye Aspect Ratio (EAR)
+- Mouth Aspect Ratio (MAR)
 - PERCLOS
 - Blink analysis
-- Head pose
+- Microsleep detection
+- Head pose estimation
 - Gaze estimation
 - Signal reliability estimation
 - Adaptive multimodal fusion
 - Temporal fatigue prediction
-- Adaptive intervention
+- Adaptive safety intervention
 - Raspberry Pi edge deployment
 
-### Development Status
+## Proposed AI Model
 
-Initial development.
+GRU (Gated Recurrent Unit) will be used as the primary temporal model for predicting driver fatigue risk from sequential driver-state features.
+
+## Development Status
+
+Project initialization.
+
+## Team
+
+B.Tech AIML Major Project
