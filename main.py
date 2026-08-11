@@ -3,8 +3,8 @@ ADAPTIVE-DMS
 Adaptive Multimodal Driver State Monitoring
 and Predictive Safety Intervention System
 
-Current version:
-    v0.3
+Version:
+    v0.4
 
 Implemented:
     - Webcam input
@@ -15,6 +15,7 @@ Implemented:
     - Blink detection
     - Microsleep detection
     - Head pose estimation
+    - Gaze estimation
 """
 
 import time
@@ -25,16 +26,20 @@ from src.camera import Camera
 from src.detector import FaceDetector
 from src.metrics import DriverMetrics
 from src.head_pose import HeadPoseEstimator
+from src.gaze import GazeEstimator
 
 
 def main():
 
     print("=" * 65)
+
     print("ADAPTIVE-DMS")
+
     print(
         "Adaptive Multimodal Driver State Monitoring "
         "and Predictive Safety Intervention System"
     )
+
     print("=" * 65)
 
     print("Starting camera...")
@@ -78,6 +83,19 @@ def main():
     head_pose = HeadPoseEstimator()
 
     # ---------------------------------------------------------
+    # GAZE
+    # ---------------------------------------------------------
+
+    gaze = GazeEstimator(
+        horizontal_left_threshold=0.35,
+        horizontal_right_threshold=0.65,
+        vertical_up_threshold=0.35,
+        vertical_down_threshold=0.65,
+        gaze_away_threshold=1.0,
+        smoothing_window=5,
+    )
+
+    # ---------------------------------------------------------
     # FPS
     # ---------------------------------------------------------
 
@@ -88,7 +106,7 @@ def main():
         while True:
 
             # -------------------------------------------------
-            # READ CAMERA
+            # CAMERA FRAME
             # -------------------------------------------------
 
             frame = camera.read()
@@ -102,7 +120,7 @@ def main():
                 break
 
             # -------------------------------------------------
-            # FPS
+            # TIME
             # -------------------------------------------------
 
             current_time = time.time()
@@ -113,11 +131,14 @@ def main():
             )
 
             if time_difference > 0:
+
                 fps = (
                     1.0
                     / time_difference
                 )
+
             else:
+
                 fps = 0.0
 
             previous_time = current_time
@@ -141,9 +162,7 @@ def main():
             if face_detected:
 
                 face_landmarks = (
-                    results.multi_face_landmarks[
-                        0
-                    ]
+                    results.multi_face_landmarks[0]
                 )
 
                 landmarks = (
@@ -170,7 +189,16 @@ def main():
                 )
 
                 # -------------------------------------------------
-                # DRAW LANDMARKS
+                # GAZE
+                # -------------------------------------------------
+
+                gaze_values = gaze.estimate(
+                    landmarks,
+                    timestamp=current_time,
+                )
+
+                # -------------------------------------------------
+                # DRAW FACE LANDMARKS
                 # -------------------------------------------------
 
                 frame = (
@@ -181,7 +209,7 @@ def main():
                 )
 
                 # -------------------------------------------------
-                # DISPLAY EAR
+                # EAR
                 # -------------------------------------------------
 
                 cv2.putText(
@@ -195,7 +223,7 @@ def main():
                 )
 
                 # -------------------------------------------------
-                # DISPLAY MAR
+                # MAR
                 # -------------------------------------------------
 
                 cv2.putText(
@@ -209,7 +237,7 @@ def main():
                 )
 
                 # -------------------------------------------------
-                # DISPLAY PERCLOS
+                # PERCLOS
                 # -------------------------------------------------
 
                 cv2.putText(
@@ -223,7 +251,7 @@ def main():
                 )
 
                 # -------------------------------------------------
-                # DISPLAY BLINKS
+                # BLINKS
                 # -------------------------------------------------
 
                 cv2.putText(
@@ -237,7 +265,7 @@ def main():
                 )
 
                 # -------------------------------------------------
-                # EYE STATE
+                # EYE STATUS
                 # -------------------------------------------------
 
                 if values["eyes_closed"]:
@@ -366,6 +394,74 @@ def main():
                     )
 
                 # -------------------------------------------------
+                # GAZE DIRECTION
+                # -------------------------------------------------
+
+                cv2.putText(
+                    frame,
+                    (
+                        "Gaze: "
+                        f"{gaze_values['gaze_direction']}"
+                    ),
+                    (20, 360),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (255, 0, 255),
+                    2,
+                )
+
+                # -------------------------------------------------
+                # GAZE RATIOS
+                # -------------------------------------------------
+
+                cv2.putText(
+                    frame,
+                    (
+                        "Gaze X: "
+                        f"{gaze_values['horizontal_ratio']:.2f}"
+                    ),
+                    (20, 390),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.55,
+                    (255, 255, 255),
+                    1,
+                )
+
+                cv2.putText(
+                    frame,
+                    (
+                        "Gaze Y: "
+                        f"{gaze_values['vertical_ratio']:.2f}"
+                    ),
+                    (20, 415),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.55,
+                    (255, 255, 255),
+                    1,
+                )
+
+                # -------------------------------------------------
+                # GAZE AWAY
+                # -------------------------------------------------
+
+                if gaze_values[
+                    "prolonged_gaze_away"
+                ]:
+
+                    cv2.putText(
+                        frame,
+                        (
+                            "GAZE AWAY: "
+                            f"{gaze_values['gaze_away_duration']:.1f}s"
+                        ),
+                        (20, 450),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.7,
+                        (0, 0, 255),
+                        2,
+                    )
+
+                # -------------------------------------------------
                 # FACE STATUS
                 # -------------------------------------------------
 
@@ -433,7 +529,7 @@ def main():
             )
 
             # -------------------------------------------------
-            # DISPLAY
+            # SHOW WINDOW
             # -------------------------------------------------
 
             cv2.imshow(
@@ -448,7 +544,6 @@ def main():
             key = cv2.waitKey(1) & 0xFF
 
             if key == ord("q"):
-
                 break
 
     except KeyboardInterrupt:
