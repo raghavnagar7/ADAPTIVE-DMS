@@ -2,23 +2,42 @@
 ADAPTIVE-DMS
 Real-Time Monitoring Dashboard
 
-v1.2
+v1.3.3
 
-Reads the latest ADAPTIVE-DMS session CSV and displays:
-- Fatigue risk
-- EAR
-- PERCLOS
-- MAR
+Features:
+- Memory-safe session CSV reading
+- Current fatigue risk
 - Risk level
-- Reliability
+- EAR
+- MAR
+- PERCLOS
+- Eye closure duration
+- Gaze direction
 - Head pose
-- Gaze
-- Intervention
-- Alerts
+- Signal reliability
+- Safety intervention
+- Alert count
+- Fatigue-risk graph
+- EAR graph
+- PERCLOS graph
+- Head-pose graph
+- Reliability graph
+- Automatic refresh
+
+IMPORTANT:
+main.py remains the camera owner.
+This dashboard only reads the session CSV.
 """
+
+
+# =============================================================
+# IMPORTS
+# =============================================================
 
 import os
 import glob
+import csv
+import time
 
 import pandas as pd
 import streamlit as st
@@ -26,18 +45,83 @@ import plotly.graph_objects as go
 
 
 # =============================================================
+# CONFIGURATION
+# =============================================================
+
+MAX_ROWS = 1500
+
+
+# =============================================================
 # PAGE CONFIGURATION
 # =============================================================
 
 st.set_page_config(
-    page_title="ADAPTIVE-DMS Dashboard",
+    page_title="ADAPTIVE-DMS",
     page_icon="🚗",
     layout="wide",
+    initial_sidebar_state="expanded",
 )
 
 
 # =============================================================
-# FIND LATEST CSV
+# CUSTOM CSS
+# =============================================================
+
+st.markdown(
+    """
+    <style>
+
+    .main-title {
+        font-size: 42px;
+        font-weight: 800;
+        margin-bottom: 0px;
+    }
+
+    .sub-title {
+        font-size: 17px;
+        opacity: 0.75;
+        margin-bottom: 20px;
+    }
+
+    .status-card {
+        padding: 18px;
+        border-radius: 12px;
+        border: 1px solid rgba(128,128,128,0.25);
+        min-height: 115px;
+    }
+
+    .alert-banner {
+        padding: 15px;
+        border-radius: 12px;
+        text-align: center;
+        font-size: 20px;
+        font-weight: 700;
+        margin: 10px 0 20px 0;
+    }
+
+    .alert-safe {
+        background: rgba(0, 200, 83, 0.12);
+        border: 1px solid rgba(0, 200, 83, 0.35);
+    }
+
+    .alert-warning {
+        background: rgba(255, 152, 0, 0.16);
+        border: 1px solid rgba(255, 152, 0, 0.40);
+    }
+
+    .alert-danger {
+        background: rgba(244, 67, 54, 0.18);
+        border: 1px solid rgba(244, 67, 54, 0.45);
+    }
+
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+# =============================================================
+# FIND LATEST SESSION
 # =============================================================
 
 def find_latest_session():
@@ -59,45 +143,367 @@ def find_latest_session():
 
 
 # =============================================================
-# LOAD DATA
+# MEMORY-SAFE CSV READER
 # =============================================================
 
 @st.cache_data(ttl=2)
-def load_data(file_path):
+def load_recent_data(
+    file_path,
+    file_modified_time,
+):
+    """
+    Read only the latest portion of the CSV.
 
-    df = pd.read_csv(
-        file_path
-    )
+    The main.py program continuously writes data.
+    Therefore we intentionally do NOT use:
 
-    if df.empty:
+        pd.read_csv(file_path)
+
+    because that would attempt to load the entire
+    growing session into memory.
+    """
+
+    try:
+
+        # -----------------------------------------------------
+        # Check file
+        # -----------------------------------------------------
+
+        if not os.path.exists(
+            file_path
+        ):
+            return pd.DataFrame()
+
+        file_size = os.path.getsize(
+            file_path
+        )
+
+        if file_size <= 0:
+            return pd.DataFrame()
+
+        # -----------------------------------------------------
+        # Read header separately
+        # -----------------------------------------------------
+
+        with open(
+            file_path,
+            "r",
+            encoding="utf-8",
+            errors="ignore",
+            newline="",
+        ) as file:
+
+            header_line = file.readline()
+
+        if not header_line:
+            return pd.DataFrame()
+
+        header_line = header_line.strip()
+
+        if not header_line:
+            return pd.DataFrame()
+
+        # -----------------------------------------------------
+        # Read only last 512 KB
+        # -----------------------------------------------------
+
+        max_bytes = 512 * 1024
+
+        bytes_to_read = min(
+            file_size,
+            max_bytes,
+        )
+
+        with open(
+            file_path,
+            "rb",
+        ) as file:
+
+            file.seek(
+                -bytes_to_read,
+                os.SEEK_END,
+            )
+
+            raw_data = file.read()
+
+        # -----------------------------------------------------
+        # Decode safely
+        # -----------------------------------------------------
+
+        text = raw_data.decode(
+            "utf-8",
+            errors="ignore",
+        )
+
+        lines = text.splitlines()
+
+        if len(lines) < 2:
+            return pd.DataFrame()
+
+        # -----------------------------------------------------
+        # The first line may be incomplete because we started
+        # reading in the middle of the file.
+        #
+        # Discard it.
+        # -----------------------------------------------------
+
+        data_lines = lines[1:]
+
+        if not data_lines:
+            return pd.DataFrame()
+
+        # -----------------------------------------------------
+        # Keep only latest rows
+        # -----------------------------------------------------
+
+        if len(data_lines) > MAX_ROWS:
+
+            data_lines = data_lines[
+                -MAX_ROWS:
+            ]
+
+        # -----------------------------------------------------
+        # Parse header
+        # -----------------------------------------------------
+
+        header_reader = csv.reader(
+            [header_line]
+        )
+
+        headers = next(
+            header_reader
+        )
+
+        if not headers:
+            return pd.DataFrame()
+
+        header_length = len(
+            headers
+        )
+
+        # -----------------------------------------------------
+        # Parse data rows
+        # -----------------------------------------------------
+
+        reader = csv.reader(
+            data_lines
+        )
+
+        valid_rows = []
+
+        for row in reader:
+
+            if not row:
+                continue
+
+            # Ignore extremely short/incomplete rows
+            if len(row) < 5:
+                continue
+
+            # Exact length
+            if len(row) == header_length:
+
+                valid_rows.append(row)
+
+            # Extra columns
+            elif len(row) > header_length:
+
+                valid_rows.append(
+                    row[:header_length]
+                )
+
+            # Missing columns
+            else:
+
+                padded_row = (
+                    row
+                    + [""] * (
+                        header_length
+                        - len(row)
+                    )
+                )
+
+                valid_rows.append(
+                    padded_row
+                )
+
+        if not valid_rows:
+            return pd.DataFrame()
+
+        # -----------------------------------------------------
+        # Create DataFrame
+        # -----------------------------------------------------
+
+        df = pd.DataFrame(
+            valid_rows,
+            columns=headers,
+        )
+
+        if df.empty:
+            return df
+
+        # -----------------------------------------------------
+        # Timestamp
+        # -----------------------------------------------------
+
+        if "timestamp" not in df.columns:
+            return pd.DataFrame()
+
+        df["timestamp"] = pd.to_datetime(
+            df["timestamp"],
+            errors="coerce",
+        )
+
+        df = df.dropna(
+            subset=[
+                "timestamp"
+            ]
+        )
+
+        if df.empty:
+            return df
+
+        # -----------------------------------------------------
+        # Numeric columns
+        # -----------------------------------------------------
+
+        numeric_columns = [
+            "ear",
+            "mar",
+            "perclos",
+            "blink_count",
+            "blink_duration",
+            "microsleep_duration",
+            "pitch",
+            "yaw",
+            "roll",
+            "gaze_away_duration",
+            "reliability",
+            "fatigue_risk",
+            "eye_closure_duration",
+        ]
+
+        for column in numeric_columns:
+
+            if column in df.columns:
+
+                df[column] = pd.to_numeric(
+                    df[column],
+                    errors="coerce",
+                )
+
+        # -----------------------------------------------------
+        # Boolean columns
+        # -----------------------------------------------------
+
+        boolean_columns = [
+            "eyes_closed",
+            "microsleep",
+            "alert_triggered",
+        ]
+
+        for column in boolean_columns:
+
+            if column in df.columns:
+
+                df[column] = (
+                    df[column]
+                    .astype(str)
+                    .str.strip()
+                    .str.lower()
+                    .map(
+                        {
+                            "true": 1,
+                            "false": 0,
+                            "1": 1,
+                            "0": 0,
+                        }
+                    )
+                    .fillna(0)
+                )
+
+        # -----------------------------------------------------
+        # Elapsed time
+        # -----------------------------------------------------
+
+        df["elapsed_seconds"] = (
+            df["timestamp"]
+            - df["timestamp"].iloc[0]
+        ).dt.total_seconds()
+
         return df
 
-    df["timestamp"] = pd.to_datetime(
-        df["timestamp"]
-    )
+    except (
+        OSError,
+        PermissionError,
+        MemoryError,
+        UnicodeError,
+        csv.Error,
+    ):
 
-    df["elapsed_seconds"] = (
-        df["timestamp"]
-        - df["timestamp"].iloc[0]
-    ).dt.total_seconds()
-
-    return df
+        return pd.DataFrame()
 
 
 # =============================================================
-# TITLE
+# SAFE FLOAT
 # =============================================================
 
-st.title(
-    "🚗 ADAPTIVE-DMS"
+def safe_float(
+    value,
+    default=0.0,
+):
+
+    try:
+
+        if pd.isna(value):
+            return default
+
+        return float(value)
+
+    except Exception:
+
+        return default
+
+
+# =============================================================
+# SAFE TEXT
+# =============================================================
+
+def safe_text(
+    value,
+    default="UNKNOWN",
+):
+
+    try:
+
+        if pd.isna(value):
+            return default
+
+        return str(value)
+
+    except Exception:
+
+        return default
+
+
+# =============================================================
+# HEADER
+# =============================================================
+
+st.markdown(
+    '<div class="main-title">'
+    '🚗 ADAPTIVE-DMS'
+    '</div>',
+    unsafe_allow_html=True,
 )
 
-st.subheader(
-    "Adaptive Multimodal Driver State Monitoring "
-    "and Predictive Safety Intervention System"
+st.markdown(
+    '<div class="sub-title">'
+    'Adaptive Multimodal Driver State Monitoring '
+    'and Predictive Safety Intervention System'
+    '</div>',
+    unsafe_allow_html=True,
 )
-
-st.divider()
 
 
 # =============================================================
@@ -110,376 +516,612 @@ if session_file is None:
 
     st.warning(
         "No session CSV found. "
-        "Run main.py first to create a session log."
+        "Start main.py first."
     )
 
     st.stop()
 
 
 # =============================================================
-# LOAD
+# FILE MODIFICATION TIME
 # =============================================================
 
-df = load_data(
-    session_file
+try:
+
+    file_modified_time = os.path.getmtime(
+        session_file
+    )
+
+except Exception:
+
+    file_modified_time = time.time()
+
+
+# =============================================================
+# LOAD RECENT DATA
+# =============================================================
+
+df = load_recent_data(
+    session_file,
+    file_modified_time,
 )
+
 
 if df.empty:
 
-    st.error(
-        "The session CSV is empty."
+    st.warning(
+        "The session CSV is currently being written "
+        "or no complete rows are available yet."
+    )
+
+    st.info(
+        "Keep main.py running and wait a few seconds."
     )
 
     st.stop()
 
 
 # =============================================================
-# LATEST DATA
+# LATEST ROW
 # =============================================================
 
 latest = df.iloc[-1]
 
 
-fatigue_risk = float(
+# =============================================================
+# CURRENT NUMERIC VALUES
+# =============================================================
+
+fatigue_risk = safe_float(
     latest.get(
         "fatigue_risk",
         0.0,
     )
 )
 
-ear = float(
+ear = safe_float(
     latest.get(
         "ear",
         0.0,
     )
 )
 
-mar = float(
+mar = safe_float(
     latest.get(
         "mar",
         0.0,
     )
 )
 
-perclos = float(
+perclos = safe_float(
     latest.get(
         "perclos",
         0.0,
     )
 )
 
-reliability = float(
+reliability = safe_float(
     latest.get(
         "reliability",
         0.0,
     )
 )
 
-risk_level = str(
+eye_closure_duration = safe_float(
     latest.get(
-        "risk_level",
-        "UNKNOWN",
+        "eye_closure_duration",
+        0.0,
     )
 )
 
-temporal_state = str(
-    latest.get(
-        "temporal_state",
-        "UNKNOWN",
-    )
-)
-
-intervention_level = str(
-    latest.get(
-        "intervention_level",
-        "UNKNOWN",
-    )
-)
-
-intervention_action = str(
-    latest.get(
-        "intervention_action",
-        "UNKNOWN",
-    )
-)
-
-gaze_direction = str(
-    latest.get(
-        "gaze_direction",
-        "UNKNOWN",
-    )
-)
-
-pitch = float(
+pitch = safe_float(
     latest.get(
         "pitch",
         0.0,
     )
 )
 
-yaw = float(
+yaw = safe_float(
     latest.get(
         "yaw",
         0.0,
     )
 )
 
-roll = float(
+roll = safe_float(
     latest.get(
         "roll",
         0.0,
     )
 )
 
-alert_count = int(
-    df["alert_triggered"]
-    .astype(bool)
-    .sum()
+
+# =============================================================
+# CURRENT TEXT VALUES
+# =============================================================
+
+risk_level = safe_text(
+    latest.get(
+        "risk_level",
+        "UNKNOWN",
+    )
+).upper()
+
+temporal_state = safe_text(
+    latest.get(
+        "temporal_state",
+        "UNKNOWN",
+    )
+)
+
+intervention_level = safe_text(
+    latest.get(
+        "intervention_level",
+        "UNKNOWN",
+    )
+)
+
+intervention_action = safe_text(
+    latest.get(
+        "intervention_action",
+        "UNKNOWN",
+    )
+)
+
+gaze_direction = safe_text(
+    latest.get(
+        "gaze_direction",
+        "UNKNOWN",
+    )
 )
 
 
 # =============================================================
-# TOP METRICS
+# ALERT COUNT
 # =============================================================
 
-col1, col2, col3, col4, col5 = st.columns(5)
+if "alert_triggered" in df.columns:
 
-
-with col1:
-
-    st.metric(
-        "Fatigue Risk",
-        f"{fatigue_risk:.2f}",
+    alert_count = int(
+        pd.to_numeric(
+            df[
+                "alert_triggered"
+            ],
+            errors="coerce",
+        )
+        .fillna(0)
+        .sum()
     )
 
+else:
 
-with col2:
-
-    st.metric(
-        "Risk Level",
-        risk_level,
-    )
-
-
-with col3:
-
-    st.metric(
-        "EAR",
-        f"{ear:.3f}",
-    )
-
-
-with col4:
-
-    st.metric(
-        "PERCLOS",
-        f"{perclos:.3f}",
-    )
-
-
-with col5:
-
-    st.metric(
-        "Alerts",
-        alert_count,
-    )
-
-
-st.divider()
+    alert_count = 0
 
 
 # =============================================================
-# STATUS COLUMNS
+# RISK STATUS
 # =============================================================
 
-left, middle, right = st.columns(3)
+if risk_level in [
+    "HIGH",
+    "CRITICAL",
+]:
+
+    alert_class = "alert-danger"
+
+    alert_text = (
+        "🚨 HIGH RISK — "
+        "DRIVER ATTENTION REQUIRED"
+    )
+
+elif risk_level == "MODERATE":
+
+    alert_class = "alert-warning"
+
+    alert_text = (
+        "⚠️ MODERATE RISK — "
+        "MONITOR DRIVER STATE"
+    )
+
+elif risk_level == "LOW":
+
+    alert_class = "alert-warning"
+
+    alert_text = (
+        "🟡 LOW RISK — "
+        "DRIVER CONDITION REQUIRES MONITORING"
+    )
+
+else:
+
+    alert_class = "alert-safe"
+
+    alert_text = (
+        "🟢 DRIVER STATE STABLE"
+    )
+
+
+# =============================================================
+# ALERT BANNER
+# =============================================================
+
+st.markdown(
+    f'<div class="alert-banner '
+    f'{alert_class}">'
+    f'{alert_text}'
+    f'</div>',
+    unsafe_allow_html=True,
+)
+
+
+# =============================================================
+# MAIN RISK CARD
+# =============================================================
+
+left, right = st.columns(
+    [1, 2]
+)
 
 
 with left:
 
-    st.markdown(
-        "### 🧠 Driver State"
+    # ---------------------------------------------------------
+    # IMPORTANT:
+    # Use native Streamlit components here instead of nested
+    # HTML divs. This prevents HTML tags from appearing as text.
+    # ---------------------------------------------------------
+
+    st.subheader(
+        "🎯 Current Risk"
     )
 
-    st.write(
-        f"**Temporal State:** {temporal_state}"
+    st.metric(
+        label="Risk Level",
+        value=risk_level,
     )
 
-    st.write(
-        f"**Intervention:** {intervention_level}"
+    st.metric(
+        label="Fatigue Risk",
+        value=f"{fatigue_risk:.2f}",
     )
 
-    st.write(
-        f"**Action:** {intervention_action}"
-    )
+    # Visual status
+    if risk_level in [
+        "HIGH",
+        "CRITICAL",
+    ]:
 
+        st.error(
+            "🚨 Driver attention required"
+        )
 
-with middle:
+    elif risk_level == "MODERATE":
 
-    st.markdown(
-        "### 👀 Vision"
-    )
+        st.warning(
+            "⚠️ Moderate fatigue risk"
+        )
 
-    st.write(
-        f"**Gaze:** {gaze_direction}"
-    )
+    elif risk_level == "LOW":
 
-    st.write(
-        f"**MAR:** {mar:.3f}"
-    )
+        st.warning(
+            "🟡 Low fatigue risk"
+        )
 
-    st.write(
-        f"**Reliability:** {reliability:.2f}"
-    )
+    else:
+
+        st.success(
+            "🟢 Driver state normal"
+        )
 
 
 with right:
 
-    st.markdown(
-        "### 🧭 Head Pose"
+    c1, c2, c3, c4 = st.columns(
+        4
     )
 
-    st.write(
-        f"**Pitch:** {pitch:.1f}°"
-    )
+    with c1:
 
-    st.write(
-        f"**Yaw:** {yaw:.1f}°"
-    )
+        st.metric(
+            "👁️ EAR",
+            f"{ear:.3f}",
+        )
 
-    st.write(
-        f"**Roll:** {roll:.1f}°"
-    )
+    with c2:
+
+        st.metric(
+            "📊 PERCLOS",
+            f"{perclos:.3f}",
+        )
+
+    with c3:
+
+        st.metric(
+            "😮 MAR",
+            f"{mar:.3f}",
+        )
+
+    with c4:
+
+        st.metric(
+            "🚨 Alerts",
+            alert_count,
+        )
 
 
 st.divider()
+
+
+# =============================================================
+# DRIVER MONITORING STATUS
+# =============================================================
+
+st.subheader(
+    "🧠 Driver Monitoring Status"
+)
+
+c1, c2, c3, c4 = st.columns(
+    4
+)
+
+
+with c1:
+
+    st.markdown(
+        f"""
+        <div class="status-card">
+        <b>Temporal State</b>
+        <br><br>
+        {temporal_state}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+with c2:
+
+    st.markdown(
+        f"""
+        <div class="status-card">
+        <b>Intervention</b>
+        <br><br>
+        {intervention_level}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+with c3:
+
+    st.markdown(
+        f"""
+        <div class="status-card">
+        <b>Gaze Direction</b>
+        <br><br>
+        👀 {gaze_direction}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+with c4:
+
+    st.markdown(
+        f"""
+        <div class="status-card">
+        <b>Signal Reliability</b>
+        <br><br>
+        📡 {reliability:.2f}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+# =============================================================
+# EYE CLOSURE
+# =============================================================
+
+st.subheader(
+    "👁️ Eye Closure Monitoring"
+)
+
+eye_col1, eye_col2 = st.columns(
+    2
+)
+
+
+with eye_col1:
+
+    st.metric(
+        "Current Eye Closure",
+        f"{eye_closure_duration:.2f} sec",
+    )
+
+
+with eye_col2:
+
+    if eye_closure_duration >= 1.5:
+
+        st.error(
+            "🚨 Eye closure threshold reached"
+        )
+
+    elif eye_closure_duration > 0:
+
+        st.warning(
+            "⚠️ Eyes currently closed"
+        )
+
+    else:
+
+        st.success(
+            "🟢 Eyes open"
+        )
 
 
 # =============================================================
 # FATIGUE RISK GRAPH
 # =============================================================
 
+st.divider()
+
 st.subheader(
-    "📈 Fatigue Risk"
+    "📈 Live Fatigue Risk"
 )
 
-fig_risk = go.Figure()
+if "fatigue_risk" in df.columns:
 
-fig_risk.add_trace(
-    go.Scatter(
-        x=df["elapsed_seconds"],
-        y=df["fatigue_risk"],
-        mode="lines",
-        name="Fatigue Risk",
+    fig_risk = go.Figure()
+
+    fig_risk.add_trace(
+        go.Scatter(
+            x=df[
+                "elapsed_seconds"
+            ],
+            y=df[
+                "fatigue_risk"
+            ],
+            mode="lines",
+            name="Fatigue Risk",
+            line=dict(
+                width=3
+            ),
+        )
     )
-)
 
-fig_risk.add_hline(
-    y=0.20,
-    line_dash="dash",
-    annotation_text="Low",
-)
+    # Risk thresholds
+    thresholds = [
+        (0.20, "Low"),
+        (0.35, "Moderate"),
+        (0.55, "High"),
+        (0.75, "Critical"),
+    ]
 
-fig_risk.add_hline(
-    y=0.35,
-    line_dash="dash",
-    annotation_text="Moderate",
-)
+    for threshold, label in thresholds:
 
-fig_risk.add_hline(
-    y=0.55,
-    line_dash="dash",
-    annotation_text="High",
-)
+        fig_risk.add_hline(
+            y=threshold,
+            line_dash="dash",
+            annotation_text=label,
+        )
 
-fig_risk.add_hline(
-    y=0.75,
-    line_dash="dash",
-    annotation_text="Critical",
-)
+    fig_risk.update_layout(
+        xaxis_title="Time (seconds)",
+        yaxis_title="Fatigue Risk",
+        yaxis_range=[
+            0,
+            1,
+        ],
+        height=420,
+        margin=dict(
+            l=30,
+            r=30,
+            t=30,
+            b=30,
+        ),
+    )
 
-fig_risk.update_layout(
-    xaxis_title="Time (seconds)",
-    yaxis_title="Fatigue Risk",
-    yaxis_range=[0, 1],
-    height=400,
-)
-
-st.plotly_chart(
-    fig_risk,
-    use_container_width=True,
-)
+    st.plotly_chart(
+        fig_risk,
+        use_container_width=True,
+    )
 
 
 # =============================================================
 # EAR + PERCLOS
 # =============================================================
 
-col1, col2 = st.columns(2)
+c1, c2 = st.columns(
+    2
+)
 
 
-with col1:
+# =============================================================
+# EAR GRAPH
+# =============================================================
+
+with c1:
 
     st.subheader(
         "👁️ Eye Aspect Ratio"
     )
 
-    fig_ear = go.Figure()
+    if "ear" in df.columns:
 
-    fig_ear.add_trace(
-        go.Scatter(
-            x=df["elapsed_seconds"],
-            y=df["ear"],
-            mode="lines",
-            name="EAR",
+        fig_ear = go.Figure()
+
+        fig_ear.add_trace(
+            go.Scatter(
+                x=df[
+                    "elapsed_seconds"
+                ],
+                y=df[
+                    "ear"
+                ],
+                mode="lines",
+                name="EAR",
+            )
         )
-    )
 
-    fig_ear.add_hline(
-        y=0.21,
-        line_dash="dash",
-        annotation_text="EAR Threshold",
-    )
+        fig_ear.add_hline(
+            y=0.21,
+            line_dash="dash",
+            annotation_text="EAR Threshold",
+        )
 
-    fig_ear.update_layout(
-        xaxis_title="Time (seconds)",
-        yaxis_title="EAR",
-        height=350,
-    )
+        fig_ear.update_layout(
+            xaxis_title="Time (seconds)",
+            yaxis_title="EAR",
+            height=350,
+        )
 
-    st.plotly_chart(
-        fig_ear,
-        use_container_width=True,
-    )
+        st.plotly_chart(
+            fig_ear,
+            use_container_width=True,
+        )
 
 
-with col2:
+# =============================================================
+# PERCLOS GRAPH
+# =============================================================
+
+with c2:
 
     st.subheader(
         "📊 PERCLOS"
     )
 
-    fig_perclos = go.Figure()
+    if "perclos" in df.columns:
 
-    fig_perclos.add_trace(
-        go.Scatter(
-            x=df["elapsed_seconds"],
-            y=df["perclos"],
-            mode="lines",
-            name="PERCLOS",
+        fig_perclos = go.Figure()
+
+        fig_perclos.add_trace(
+            go.Scatter(
+                x=df[
+                    "elapsed_seconds"
+                ],
+                y=df[
+                    "perclos"
+                ],
+                mode="lines",
+                name="PERCLOS",
+            )
         )
-    )
 
-    fig_perclos.update_layout(
-        xaxis_title="Time (seconds)",
-        yaxis_title="PERCLOS",
-        height=350,
-    )
+        fig_perclos.update_layout(
+            xaxis_title="Time (seconds)",
+            yaxis_title="PERCLOS",
+            height=350,
+        )
 
-    st.plotly_chart(
-        fig_perclos,
-        use_container_width=True,
-    )
+        st.plotly_chart(
+            fig_perclos,
+            use_container_width=True,
+        )
 
 
 # =============================================================
@@ -488,36 +1130,59 @@ with col2:
 
 st.subheader(
     "🧭 Head Pose"
+
 )
 
 fig_pose = go.Figure()
 
-fig_pose.add_trace(
-    go.Scatter(
-        x=df["elapsed_seconds"],
-        y=df["pitch"],
-        mode="lines",
-        name="Pitch",
-    )
-)
 
-fig_pose.add_trace(
-    go.Scatter(
-        x=df["elapsed_seconds"],
-        y=df["yaw"],
-        mode="lines",
-        name="Yaw",
-    )
-)
+if "pitch" in df.columns:
 
-fig_pose.add_trace(
-    go.Scatter(
-        x=df["elapsed_seconds"],
-        y=df["roll"],
-        mode="lines",
-        name="Roll",
+    fig_pose.add_trace(
+        go.Scatter(
+            x=df[
+                "elapsed_seconds"
+            ],
+            y=df[
+                "pitch"
+            ],
+            mode="lines",
+            name="Pitch",
+        )
     )
-)
+
+
+if "yaw" in df.columns:
+
+    fig_pose.add_trace(
+        go.Scatter(
+            x=df[
+                "elapsed_seconds"
+            ],
+            y=df[
+                "yaw"
+            ],
+            mode="lines",
+            name="Yaw",
+        )
+    )
+
+
+if "roll" in df.columns:
+
+    fig_pose.add_trace(
+        go.Scatter(
+            x=df[
+                "elapsed_seconds"
+            ],
+            y=df[
+                "roll"
+            ],
+            mode="lines",
+            name="Roll",
+        )
+    )
+
 
 fig_pose.update_layout(
     xaxis_title="Time (seconds)",
@@ -539,28 +1204,113 @@ st.subheader(
     "📡 Signal Reliability"
 )
 
-fig_reliability = go.Figure()
+if "reliability" in df.columns:
 
-fig_reliability.add_trace(
-    go.Scatter(
-        x=df["elapsed_seconds"],
-        y=df["reliability"],
-        mode="lines",
-        name="Reliability",
+    fig_reliability = go.Figure()
+
+    fig_reliability.add_trace(
+        go.Scatter(
+            x=df[
+                "elapsed_seconds"
+            ],
+            y=df[
+                "reliability"
+            ],
+            mode="lines",
+            name="Reliability",
+        )
     )
+
+    fig_reliability.update_layout(
+        xaxis_title="Time (seconds)",
+        yaxis_title="Reliability",
+        yaxis_range=[
+            0,
+            1,
+        ],
+        height=350,
+    )
+
+    st.plotly_chart(
+        fig_reliability,
+        use_container_width=True,
+    )
+
+
+# =============================================================
+# SAFETY INTERVENTION
+# =============================================================
+
+st.divider()
+
+st.subheader(
+    "🚨 Safety Intervention"
 )
 
-fig_reliability.update_layout(
-    xaxis_title="Time (seconds)",
-    yaxis_title="Reliability",
-    yaxis_range=[0, 1],
-    height=350,
+c1, c2, c3 = st.columns(
+    3
 )
 
-st.plotly_chart(
-    fig_reliability,
-    use_container_width=True,
+
+with c1:
+
+    st.metric(
+        "Intervention Level",
+        intervention_level,
+    )
+
+
+with c2:
+
+    st.metric(
+        "Action",
+        intervention_action,
+    )
+
+
+with c3:
+
+    st.metric(
+        "Total Alerts",
+        alert_count,
+    )
+
+
+# =============================================================
+# CURRENT HEAD POSE
+# =============================================================
+
+st.subheader(
+    "🧭 Current Head Pose"
 )
+
+c1, c2, c3 = st.columns(
+    3
+)
+
+
+with c1:
+
+    st.metric(
+        "Pitch",
+        f"{pitch:.1f}°",
+    )
+
+
+with c2:
+
+    st.metric(
+        "Yaw",
+        f"{yaw:.1f}°",
+    )
+
+
+with c3:
+
+    st.metric(
+        "Roll",
+        f"{roll:.1f}°",
+    )
 
 
 # =============================================================
@@ -573,24 +1323,58 @@ st.subheader(
     "📋 Session Information"
 )
 
-duration = float(
-    df["elapsed_seconds"].iloc[-1]
+duration = safe_float(
+    df[
+        "elapsed_seconds"
+    ].iloc[-1]
 )
 
-st.write(
-    f"**Session file:** `{session_file}`"
+c1, c2, c3 = st.columns(
+    3
 )
 
-st.write(
-    f"**Session duration:** {duration:.1f} seconds"
+
+with c1:
+
+    st.write(
+        "**Session:** "
+        f"`{os.path.basename(session_file)}`"
+    )
+
+
+with c2:
+
+    st.write(
+        f"**Displayed duration:** "
+        f"{duration:.1f} seconds"
+    )
+
+
+with c3:
+
+    st.write(
+        f"**Displayed samples:** "
+        f"{len(df)}"
+    )
+
+
+# =============================================================
+# FOOTER
+# =============================================================
+
+st.divider()
+
+st.caption(
+    "ADAPTIVE-DMS v1.3.3 | "
+    "Memory-safe real-time dashboard"
 )
 
-st.write(
-    f"**Samples:** {len(df)}"
+st.caption(
+    f"Displaying at most {MAX_ROWS} recent samples."
 )
 
-st.write(
-    f"**Safety alerts:** {alert_count}"
+st.caption(
+    "Dashboard refresh interval: approximately 2 seconds."
 )
 
 
@@ -598,17 +1382,6 @@ st.write(
 # AUTO REFRESH
 # =============================================================
 
-st.caption(
-    "Dashboard refreshes automatically every 2 seconds."
-)
+time.sleep(2)
 
-st.markdown(
-    """
-    <script>
-        setTimeout(function(){
-            window.location.reload();
-        }, 2000);
-    </script>
-    """,
-    unsafe_allow_html=True,
-)
+st.rerun()
