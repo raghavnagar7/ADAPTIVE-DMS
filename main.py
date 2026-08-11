@@ -4,18 +4,19 @@ Adaptive Multimodal Driver State Monitoring
 and Predictive Safety Intervention System
 
 Version:
-    v0.4
+    v0.5
 
 Implemented:
-    - Webcam input
+    - Webcam
     - MediaPipe Face Mesh
     - EAR
     - MAR
     - PERCLOS
     - Blink detection
     - Microsleep detection
-    - Head pose estimation
+    - Head pose
     - Gaze estimation
+    - Signal reliability estimation
 """
 
 import time
@@ -27,11 +28,12 @@ from src.detector import FaceDetector
 from src.metrics import DriverMetrics
 from src.head_pose import HeadPoseEstimator
 from src.gaze import GazeEstimator
+from src.reliability import SignalReliabilityEstimator
 
 
 def main():
 
-    print("=" * 65)
+    print("=" * 70)
 
     print("ADAPTIVE-DMS")
 
@@ -40,7 +42,7 @@ def main():
         "and Predictive Safety Intervention System"
     )
 
-    print("=" * 65)
+    print("=" * 70)
 
     print("Starting camera...")
     print("Press Q to quit.")
@@ -96,6 +98,14 @@ def main():
     )
 
     # ---------------------------------------------------------
+    # RELIABILITY
+    # ---------------------------------------------------------
+
+    reliability = (
+        SignalReliabilityEstimator()
+    )
+
+    # ---------------------------------------------------------
     # FPS
     # ---------------------------------------------------------
 
@@ -106,7 +116,7 @@ def main():
         while True:
 
             # -------------------------------------------------
-            # CAMERA FRAME
+            # CAMERA
             # -------------------------------------------------
 
             frame = camera.read()
@@ -125,16 +135,16 @@ def main():
 
             current_time = time.time()
 
-            time_difference = (
+            delta_time = (
                 current_time
                 - previous_time
             )
 
-            if time_difference > 0:
+            if delta_time > 0:
 
                 fps = (
                     1.0
-                    / time_difference
+                    / delta_time
                 )
 
             else:
@@ -156,6 +166,37 @@ def main():
             )
 
             # -------------------------------------------------
+            # DEFAULT VALUES
+            # -------------------------------------------------
+
+            pose_values = {
+                "pitch": 0.0,
+                "yaw": 0.0,
+                "roll": 0.0,
+                "valid": False,
+            }
+
+            gaze_values = {
+                "horizontal_ratio": 0.5,
+                "vertical_ratio": 0.5,
+                "gaze_direction": "UNKNOWN",
+                "gaze_away_duration": 0.0,
+                "prolonged_gaze_away": False,
+            }
+
+            driver_values = {
+                "ear": 0.0,
+                "mar": 0.0,
+                "perclos": 0.0,
+                "eyes_closed": False,
+                "yawning": False,
+                "blink_count": 0,
+                "blink_duration": 0.0,
+                "microsleep_duration": 0.0,
+                "microsleep": False,
+            }
+
+            # -------------------------------------------------
             # FACE FOUND
             # -------------------------------------------------
 
@@ -173,32 +214,38 @@ def main():
                 # DRIVER METRICS
                 # -------------------------------------------------
 
-                values = metrics.calculate(
-                    landmarks,
-                    timestamp=current_time,
+                driver_values = (
+                    metrics.calculate(
+                        landmarks,
+                        timestamp=current_time,
+                    )
                 )
 
                 # -------------------------------------------------
                 # HEAD POSE
                 # -------------------------------------------------
 
-                pose = head_pose.estimate(
-                    landmarks,
-                    frame.shape[1],
-                    frame.shape[0],
+                pose_values = (
+                    head_pose.estimate(
+                        landmarks,
+                        frame.shape[1],
+                        frame.shape[0],
+                    )
                 )
 
                 # -------------------------------------------------
                 # GAZE
                 # -------------------------------------------------
 
-                gaze_values = gaze.estimate(
-                    landmarks,
-                    timestamp=current_time,
+                gaze_values = (
+                    gaze.estimate(
+                        landmarks,
+                        timestamp=current_time,
+                    )
                 )
 
                 # -------------------------------------------------
-                # DRAW FACE LANDMARKS
+                # DRAW LANDMARKS
                 # -------------------------------------------------
 
                 frame = (
@@ -208,161 +255,153 @@ def main():
                     )
                 )
 
-                # -------------------------------------------------
-                # EAR
-                # -------------------------------------------------
+            # -------------------------------------------------
+            # PERCLOS SAMPLE COUNT
+            # -------------------------------------------------
 
+            perclos_sample_count = len(
+                metrics.eye_history
+            )
+
+            # -------------------------------------------------
+            # RELIABILITY
+            # -------------------------------------------------
+
+            reliability_values = (
+                reliability.calculate(
+                    frame=frame,
+                    driver_values=driver_values,
+                    pose_values=pose_values,
+                    gaze_values=gaze_values,
+                    perclos_sample_count=(
+                        perclos_sample_count
+                    ),
+                    face_detected=face_detected,
+                )
+            )
+
+            reliability_vector = (
+                reliability_values[
+                    "reliability_vector"
+                ]
+            )
+
+            # -------------------------------------------------
+            # DISPLAY DRIVER METRICS
+            # -------------------------------------------------
+
+            if face_detected:
+
+                # EAR
                 cv2.putText(
                     frame,
-                    f"EAR: {values['ear']:.3f}",
+                    f"EAR: {driver_values['ear']:.3f}",
                     (20, 35),
                     cv2.FONT_HERSHEY_SIMPLEX,
-                    0.65,
+                    0.60,
                     (0, 255, 0),
                     2,
                 )
 
-                # -------------------------------------------------
                 # MAR
-                # -------------------------------------------------
-
                 cv2.putText(
                     frame,
-                    f"MAR: {values['mar']:.3f}",
+                    f"MAR: {driver_values['mar']:.3f}",
                     (20, 65),
                     cv2.FONT_HERSHEY_SIMPLEX,
-                    0.65,
+                    0.60,
                     (0, 255, 0),
                     2,
                 )
 
-                # -------------------------------------------------
                 # PERCLOS
-                # -------------------------------------------------
-
                 cv2.putText(
                     frame,
-                    f"PERCLOS: {values['perclos']:.3f}",
+                    (
+                        f"PERCLOS: "
+                        f"{driver_values['perclos']:.3f}"
+                    ),
                     (20, 95),
                     cv2.FONT_HERSHEY_SIMPLEX,
-                    0.65,
+                    0.60,
                     (0, 255, 0),
                     2,
                 )
 
-                # -------------------------------------------------
-                # BLINKS
-                # -------------------------------------------------
-
+                # BLINK
                 cv2.putText(
                     frame,
-                    f"Blinks: {values['blink_count']}",
+                    (
+                        f"Blinks: "
+                        f"{driver_values['blink_count']}"
+                    ),
                     (20, 125),
                     cv2.FONT_HERSHEY_SIMPLEX,
-                    0.65,
+                    0.60,
                     (0, 255, 0),
                     2,
                 )
 
-                # -------------------------------------------------
-                # EYE STATUS
-                # -------------------------------------------------
-
-                if values["eyes_closed"]:
-
-                    eye_status = "EYES CLOSED"
-
-                    eye_color = (
-                        0,
-                        165,
-                        255,
-                    )
-
-                else:
-
-                    eye_status = "EYES OPEN"
-
-                    eye_color = (
-                        0,
-                        255,
-                        0,
-                    )
+                # EYE STATE
+                eye_status = (
+                    "EYES CLOSED"
+                    if driver_values["eyes_closed"]
+                    else "EYES OPEN"
+                )
 
                 cv2.putText(
                     frame,
                     eye_status,
                     (20, 160),
                     cv2.FONT_HERSHEY_SIMPLEX,
-                    0.65,
-                    eye_color,
+                    0.60,
+                    (0, 165, 255)
+                    if driver_values["eyes_closed"]
+                    else (0, 255, 0),
                     2,
                 )
 
-                # -------------------------------------------------
                 # YAWNING
-                # -------------------------------------------------
-
-                if values["yawning"]:
+                if driver_values["yawning"]:
 
                     cv2.putText(
                         frame,
                         "YAWNING",
                         (20, 195),
                         cv2.FONT_HERSHEY_SIMPLEX,
-                        0.7,
+                        0.65,
                         (0, 165, 255),
                         2,
                     )
 
-                # -------------------------------------------------
                 # MICROSLEEP
-                # -------------------------------------------------
-
-                if values["microsleep"]:
+                if driver_values["microsleep"]:
 
                     cv2.putText(
                         frame,
                         (
                             "MICROSLEEP: "
-                            f"{values['microsleep_duration']:.1f}s"
+                            f"{driver_values['microsleep_duration']:.1f}s"
                         ),
                         (20, 230),
                         cv2.FONT_HERSHEY_SIMPLEX,
-                        0.7,
+                        0.65,
                         (0, 0, 255),
                         2,
                     )
 
-                else:
-
-                    cv2.putText(
-                        frame,
-                        (
-                            "Eye closure: "
-                            f"{values['microsleep_duration']:.1f}s"
-                        ),
-                        (20, 230),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.55,
-                        (255, 255, 255),
-                        1,
-                    )
-
-                # -------------------------------------------------
                 # HEAD POSE
-                # -------------------------------------------------
-
-                if pose["valid"]:
+                if pose_values["valid"]:
 
                     cv2.putText(
                         frame,
                         (
                             f"Pitch: "
-                            f"{pose['pitch']:.1f}"
+                            f"{pose_values['pitch']:.1f}"
                         ),
                         (20, 265),
                         cv2.FONT_HERSHEY_SIMPLEX,
-                        0.6,
+                        0.55,
                         (255, 255, 0),
                         2,
                     )
@@ -371,11 +410,11 @@ def main():
                         frame,
                         (
                             f"Yaw: "
-                            f"{pose['yaw']:.1f}"
+                            f"{pose_values['yaw']:.1f}"
                         ),
                         (20, 295),
                         cv2.FONT_HERSHEY_SIMPLEX,
-                        0.6,
+                        0.55,
                         (255, 255, 0),
                         2,
                     )
@@ -384,103 +423,28 @@ def main():
                         frame,
                         (
                             f"Roll: "
-                            f"{pose['roll']:.1f}"
+                            f"{pose_values['roll']:.1f}"
                         ),
                         (20, 325),
                         cv2.FONT_HERSHEY_SIMPLEX,
-                        0.6,
+                        0.55,
                         (255, 255, 0),
                         2,
                     )
 
-                # -------------------------------------------------
-                # GAZE DIRECTION
-                # -------------------------------------------------
-
+                # GAZE
                 cv2.putText(
                     frame,
                     (
-                        "Gaze: "
+                        f"Gaze: "
                         f"{gaze_values['gaze_direction']}"
                     ),
                     (20, 360),
                     cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7,
+                    0.65,
                     (255, 0, 255),
                     2,
                 )
-
-                # -------------------------------------------------
-                # GAZE RATIOS
-                # -------------------------------------------------
-
-                cv2.putText(
-                    frame,
-                    (
-                        "Gaze X: "
-                        f"{gaze_values['horizontal_ratio']:.2f}"
-                    ),
-                    (20, 390),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.55,
-                    (255, 255, 255),
-                    1,
-                )
-
-                cv2.putText(
-                    frame,
-                    (
-                        "Gaze Y: "
-                        f"{gaze_values['vertical_ratio']:.2f}"
-                    ),
-                    (20, 415),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.55,
-                    (255, 255, 255),
-                    1,
-                )
-
-                # -------------------------------------------------
-                # GAZE AWAY
-                # -------------------------------------------------
-
-                if gaze_values[
-                    "prolonged_gaze_away"
-                ]:
-
-                    cv2.putText(
-                        frame,
-                        (
-                            "GAZE AWAY: "
-                            f"{gaze_values['gaze_away_duration']:.1f}s"
-                        ),
-                        (20, 450),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.7,
-                        (0, 0, 255),
-                        2,
-                    )
-
-                # -------------------------------------------------
-                # FACE STATUS
-                # -------------------------------------------------
-
-                cv2.putText(
-                    frame,
-                    "FACE DETECTED",
-                    (
-                        20,
-                        frame.shape[0] - 50,
-                    ),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.65,
-                    (0, 255, 0),
-                    2,
-                )
-
-            # -------------------------------------------------
-            # NO FACE
-            # -------------------------------------------------
 
             else:
 
@@ -489,10 +453,80 @@ def main():
                     "NO FACE DETECTED",
                     (20, 40),
                     cv2.FONT_HERSHEY_SIMPLEX,
-                    0.8,
+                    0.75,
                     (0, 0, 255),
                     2,
                 )
+
+            # -------------------------------------------------
+            # RELIABILITY DISPLAY
+            # ---------------------------------------------------------
+
+            cv2.putText(
+                frame,
+                "SIGNAL RELIABILITY",
+                (520, 35),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.60,
+                (255, 255, 255),
+                2,
+            )
+
+            y_position = 65
+
+            for name, score in reliability_vector.items():
+
+                cv2.putText(
+                    frame,
+                    f"{name}: {score:.2f}",
+                    (520, y_position),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.50,
+                    (255, 255, 255),
+                    1,
+                )
+
+                y_position += 25
+
+            # -------------------------------------------------
+            # OVERALL RELIABILITY
+            # -------------------------------------------------
+
+            overall = (
+                reliability_values[
+                    "overall_reliability"
+                ]
+            )
+
+            cv2.putText(
+                frame,
+                (
+                    f"Overall Reliability: "
+                    f"{overall:.2f}"
+                ),
+                (520, y_position + 5),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.55,
+                (0, 255, 255),
+                2,
+            )
+
+            # -------------------------------------------------
+            # IMAGE QUALITY
+            # -------------------------------------------------
+
+            cv2.putText(
+                frame,
+                (
+                    f"Image Quality: "
+                    f"{reliability_values['image_quality']:.2f}"
+                ),
+                (520, y_position + 35),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.50,
+                (255, 255, 255),
+                1,
+            )
 
             # -------------------------------------------------
             # FPS
@@ -506,8 +540,33 @@ def main():
                     35,
                 ),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
+                0.60,
                 (255, 255, 255),
+                2,
+            )
+
+            # -------------------------------------------------
+            # STATUS
+            # -------------------------------------------------
+
+            cv2.putText(
+                frame,
+                (
+                    "FACE DETECTED"
+                    if face_detected
+                    else "FACE NOT DETECTED"
+                ),
+                (
+                    20,
+                    frame.shape[0] - 50,
+                ),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.60,
+                (
+                    (0, 255, 0)
+                    if face_detected
+                    else (0, 0, 255)
+                ),
                 2,
             )
 
@@ -523,23 +582,19 @@ def main():
                     frame.shape[0] - 20,
                 ),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.55,
+                0.50,
                 (255, 255, 255),
                 2,
             )
 
             # -------------------------------------------------
-            # SHOW WINDOW
+            # SHOW
             # -------------------------------------------------
 
             cv2.imshow(
                 "ADAPTIVE-DMS",
                 frame,
             )
-
-            # -------------------------------------------------
-            # KEYBOARD
-            # -------------------------------------------------
 
             key = cv2.waitKey(1) & 0xFF
 
@@ -562,10 +617,10 @@ def main():
         cv2.destroyAllWindows()
 
         print()
-        print("=" * 65)
+        print("=" * 70)
         print("Camera released.")
         print("ADAPTIVE-DMS stopped.")
-        print("=" * 65)
+        print("=" * 70)
 
 
 if __name__ == "__main__":
