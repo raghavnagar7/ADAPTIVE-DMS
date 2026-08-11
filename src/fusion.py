@@ -1,7 +1,7 @@
 """
 Adaptive Multimodal Fusion for ADAPTIVE-DMS.
 
-v0.6
+v0.8
 
 Combines:
     - EAR
@@ -21,31 +21,11 @@ Output:
     - Risk level
 """
 
-
 class AdaptiveMultimodalFusion:
-    """
-    Reliability-aware adaptive multimodal fusion.
-
-    Each signal has:
-        1. A base importance weight.
-        2. A current reliability value.
-        3. A calculated risk value.
-
-    Effective weight:
-
-        effective_weight =
-            base_weight * reliability
-
-    The final risk is the weighted average of
-    the individual signal risks.
-    """
 
     def __init__(self):
 
-        # -----------------------------------------------------
         # Base importance weights
-        # -----------------------------------------------------
-
         self.base_weights = {
             "EAR": 0.20,
             "PERCLOS": 0.20,
@@ -56,13 +36,11 @@ class AdaptiveMultimodalFusion:
             "Gaze": 0.13,
         }
 
-        # Check that weights sum to 1.
         total = sum(
             self.base_weights.values()
         )
 
         if abs(total - 1.0) > 0.001:
-
             raise ValueError(
                 "Fusion base weights must sum to 1.0"
             )
@@ -77,7 +55,6 @@ class AdaptiveMultimodalFusion:
         minimum=0.0,
         maximum=1.0,
     ):
-        """Limit value to [0, 1]."""
 
         return max(
             minimum,
@@ -88,25 +65,15 @@ class AdaptiveMultimodalFusion:
         )
 
     # ---------------------------------------------------------
-    # EAR risk
+    # EAR RISK
     # ---------------------------------------------------------
 
-    def ear_risk(
-        self,
-        ear,
-    ):
-        """
-        Convert EAR into drowsiness risk.
-
-        Higher risk when EAR becomes low.
-        """
+    def ear_risk(self, ear):
 
         if ear >= 0.30:
-
             return 0.0
 
         if ear <= 0.15:
-
             return 1.0
 
         return self.clamp(
@@ -115,23 +82,15 @@ class AdaptiveMultimodalFusion:
         )
 
     # ---------------------------------------------------------
-    # PERCLOS risk
+    # PERCLOS RISK
     # ---------------------------------------------------------
 
-    def perclos_risk(
-        self,
-        perclos,
-    ):
-        """
-        Convert PERCLOS into fatigue risk.
-        """
+    def perclos_risk(self, perclos):
 
         if perclos <= 0.10:
-
             return 0.0
 
         if perclos >= 0.50:
-
             return 1.0
 
         return self.clamp(
@@ -140,30 +99,18 @@ class AdaptiveMultimodalFusion:
         )
 
     # ---------------------------------------------------------
-    # Blink risk
+    # BLINK RISK
     # ---------------------------------------------------------
 
     def blink_risk(
         self,
         blink_duration,
     ):
-        """
-        Longer blink duration can indicate
-        increasing fatigue.
-
-        Normal short blink:
-            low risk
-
-        Prolonged blink:
-            high risk
-        """
 
         if blink_duration <= 0.20:
-
             return 0.0
 
         if blink_duration >= 0.80:
-
             return 1.0
 
         return self.clamp(
@@ -172,7 +119,7 @@ class AdaptiveMultimodalFusion:
         )
 
     # ---------------------------------------------------------
-    # Microsleep risk
+    # MICROSLEEP RISK
     # ---------------------------------------------------------
 
     def microsleep_risk(
@@ -180,14 +127,10 @@ class AdaptiveMultimodalFusion:
         microsleep,
         duration,
     ):
-        """
-        Microsleep is treated as a strong fatigue signal.
-        """
 
         if microsleep:
 
             if duration >= 3.0:
-
                 return 1.0
 
             return self.clamp(
@@ -197,7 +140,7 @@ class AdaptiveMultimodalFusion:
         return 0.0
 
     # ---------------------------------------------------------
-    # MAR / Yawning risk
+    # MAR / YAWNING RISK
     # ---------------------------------------------------------
 
     def mar_risk(
@@ -205,20 +148,14 @@ class AdaptiveMultimodalFusion:
         mar,
         yawning,
     ):
-        """
-        Convert mouth opening/yawning into fatigue risk.
-        """
 
         if yawning:
-
             return 1.0
 
         if mar <= 0.40:
-
             return 0.0
 
         if mar >= 0.80:
-
             return 1.0
 
         return self.clamp(
@@ -227,7 +164,7 @@ class AdaptiveMultimodalFusion:
         )
 
     # ---------------------------------------------------------
-    # Head pose risk
+    # HEAD POSE RISK
     # ---------------------------------------------------------
 
     def head_pose_risk(
@@ -236,14 +173,6 @@ class AdaptiveMultimodalFusion:
         yaw,
         roll,
     ):
-        """
-        Estimate attention risk from extreme
-        head orientation.
-
-        This is NOT a clinical drowsiness measure.
-        It represents possible driver distraction/
-        abnormal orientation.
-        """
 
         pitch_risk = self.clamp(
             abs(pitch) / 45.0
@@ -262,12 +191,11 @@ class AdaptiveMultimodalFusion:
                 pitch_risk
                 + yaw_risk
                 + roll_risk
-            )
-            / 3.0
+            ) / 3.0
         )
 
     # ---------------------------------------------------------
-    # Gaze risk
+    # GAZE RISK
     # ---------------------------------------------------------
 
     def gaze_risk(
@@ -275,21 +203,14 @@ class AdaptiveMultimodalFusion:
         gaze_direction,
         gaze_away_duration,
     ):
-        """
-        Estimate attention risk from prolonged
-        gaze away from the forward direction.
-        """
 
         if gaze_direction == "CENTER":
-
             return 0.0
 
         if gaze_away_duration <= 0.5:
-
             return 0.20
 
         if gaze_away_duration >= 3.0:
-
             return 1.0
 
         return self.clamp(
@@ -297,22 +218,13 @@ class AdaptiveMultimodalFusion:
         )
 
     # ---------------------------------------------------------
-    # Adaptive weights
+    # ADAPTIVE WEIGHTS
     # ---------------------------------------------------------
 
     def calculate_adaptive_weights(
         self,
         reliability_vector,
     ):
-        """
-        Calculate effective weights.
-
-        effective_weight =
-            base_weight * reliability
-
-        Then normalize all effective weights
-        so that their sum is 1.
-        """
 
         effective_weights = {}
 
@@ -338,7 +250,6 @@ class AdaptiveMultimodalFusion:
 
         if total_weight <= 1e-8:
 
-            # No reliable signals.
             return {
                 signal: 0.0
                 for signal
@@ -359,35 +270,35 @@ class AdaptiveMultimodalFusion:
         return normalized_weights
 
     # ---------------------------------------------------------
-    # Risk level
+    # CALIBRATED RISK LEVEL
     # ---------------------------------------------------------
 
-    def risk_level(
-        self,
-        risk,
-    ):
-        """Convert numerical risk into a level."""
+    def risk_level(self, risk):
+
+        # Calibrated thresholds
+        #
+        # 0.00 - 0.19 = NORMAL
+        # 0.20 - 0.34 = LOW
+        # 0.35 - 0.54 = MODERATE
+        # 0.55 - 0.74 = HIGH
+        # 0.75 - 1.00 = CRITICAL
 
         if risk < 0.20:
-
             return "NORMAL"
 
-        if risk < 0.40:
-
+        if risk < 0.35:
             return "LOW"
 
-        if risk < 0.60:
-
+        if risk < 0.55:
             return "MODERATE"
 
-        if risk < 0.80:
-
+        if risk < 0.75:
             return "HIGH"
 
         return "CRITICAL"
 
     # ---------------------------------------------------------
-    # Main fusion
+    # MAIN FUSION
     # ---------------------------------------------------------
 
     def calculate(
@@ -397,12 +308,9 @@ class AdaptiveMultimodalFusion:
         gaze_values,
         reliability_values,
     ):
-        """
-        Calculate adaptive multimodal fatigue risk.
-        """
 
         # -----------------------------------------------------
-        # Individual signal risks
+        # Individual risks
         # -----------------------------------------------------
 
         risks = {
@@ -459,7 +367,7 @@ class AdaptiveMultimodalFusion:
         }
 
         # -----------------------------------------------------
-        # Reliability vector
+        # Reliability
         # -----------------------------------------------------
 
         reliability_vector = (
@@ -479,17 +387,23 @@ class AdaptiveMultimodalFusion:
         )
 
         # -----------------------------------------------------
-        # Weighted fusion
+        # Weighted contributions
         # -----------------------------------------------------
 
         weighted_contributions = {}
 
         for signal in self.base_weights:
 
-            weighted_contributions[signal] = (
+            weighted_contributions[
+                signal
+            ] = (
                 risks[signal]
                 * adaptive_weights[signal]
             )
+
+        # -----------------------------------------------------
+        # Final fatigue risk
+        # -----------------------------------------------------
 
         fatigue_risk = sum(
             weighted_contributions.values()
@@ -508,7 +422,9 @@ class AdaptiveMultimodalFusion:
         )
 
         return {
-            "signal_risks": risks,
+
+            "signal_risks":
+                risks,
 
             "adaptive_weights":
                 adaptive_weights,

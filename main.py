@@ -1,24 +1,27 @@
 """
 ADAPTIVE-DMS
+
 Adaptive Multimodal Driver State Monitoring
-and Predictive Safety Intervention System
+and Predictive Safety Intervention System.
 
 Version:
-    v0.7
+    v0.8
 
-Implemented:
+Features:
     - Webcam
-    - MediaPipe Face Mesh
+    - Face Detection
     - EAR
     - MAR
     - PERCLOS
-    - Blink detection
-    - Microsleep detection
-    - Head pose
-    - Gaze estimation
-    - Signal reliability
-    - Adaptive multimodal fusion
-    - Temporal fatigue analysis
+    - Blink Detection
+    - Microsleep Detection
+    - Head Pose
+    - Gaze Estimation
+    - Signal Reliability
+    - Adaptive Multimodal Fusion
+    - Temporal Fatigue Analysis
+    - Adaptive Safety Intervention
+    - Direct 1.5-second Eye Closure Alert
 """
 
 import time
@@ -33,24 +36,29 @@ from src.gaze import GazeEstimator
 from src.reliability import SignalReliabilityEstimator
 from src.fusion import AdaptiveMultimodalFusion
 from src.temporal import TemporalFatiguePredictor
+from src.intervention import AdaptiveSafetyIntervention
 
 
 def main():
 
     print("=" * 70)
+
     print("ADAPTIVE-DMS")
+
     print(
         "Adaptive Multimodal Driver State Monitoring "
         "and Predictive Safety Intervention System"
     )
+
     print("=" * 70)
+
     print("Starting camera...")
     print("Press Q to quit.")
     print()
 
-    # ---------------------------------------------------------
+    # =========================================================
     # CAMERA
-    # ---------------------------------------------------------
+    # =========================================================
 
     camera = Camera(
         source=0,
@@ -58,18 +66,18 @@ def main():
         height=540,
     )
 
-    # ---------------------------------------------------------
+    # =========================================================
     # FACE DETECTOR
-    # ---------------------------------------------------------
+    # =========================================================
 
     detector = FaceDetector(
         min_detection_confidence=0.5,
         min_tracking_confidence=0.5,
     )
 
-    # ---------------------------------------------------------
+    # =========================================================
     # DRIVER METRICS
-    # ---------------------------------------------------------
+    # =========================================================
 
     metrics = DriverMetrics(
         ear_threshold=0.21,
@@ -78,15 +86,15 @@ def main():
         microsleep_threshold=1.5,
     )
 
-    # ---------------------------------------------------------
+    # =========================================================
     # HEAD POSE
-    # ---------------------------------------------------------
+    # =========================================================
 
     head_pose = HeadPoseEstimator()
 
-    # ---------------------------------------------------------
+    # =========================================================
     # GAZE
-    # ---------------------------------------------------------
+    # =========================================================
 
     gaze = GazeEstimator(
         horizontal_left_threshold=0.35,
@@ -97,21 +105,21 @@ def main():
         smoothing_window=5,
     )
 
-    # ---------------------------------------------------------
+    # =========================================================
     # RELIABILITY
-    # ---------------------------------------------------------
+    # =========================================================
 
     reliability = SignalReliabilityEstimator()
 
-    # ---------------------------------------------------------
+    # =========================================================
     # ADAPTIVE FUSION
-    # ---------------------------------------------------------
+    # =========================================================
 
     fusion = AdaptiveMultimodalFusion()
 
-    # ---------------------------------------------------------
-    # TEMPORAL FATIGUE ANALYSIS
-    # ---------------------------------------------------------
+    # =========================================================
+    # TEMPORAL ANALYSIS
+    # =========================================================
 
     temporal = TemporalFatiguePredictor(
         history_seconds=30.0,
@@ -122,19 +130,42 @@ def main():
         high_risk_threshold=0.60,
     )
 
-    # ---------------------------------------------------------
+    # =========================================================
+    # SAFETY INTERVENTION
+    # =========================================================
+
+    intervention = AdaptiveSafetyIntervention(
+        low_threshold=0.20,
+        moderate_threshold=0.35,
+        high_threshold=0.55,
+        critical_threshold=0.75,
+        minimum_reliability=0.40,
+        persistence_seconds=1.5,
+        cooldown_seconds=5.0,
+        eye_closure_trigger_seconds=1.5,
+    )
+
+    # =========================================================
     # FPS
-    # ---------------------------------------------------------
+    # =========================================================
 
     previous_time = time.time()
+
+    # =========================================================
+    # EYE CLOSURE TIMER
+    # =========================================================
+
+    eyes_closed_start_time = None
+
+    current_eye_closure_duration = 0.0
 
     try:
 
         while True:
 
-            # -------------------------------------------------
-            # READ CAMERA
-            # -------------------------------------------------
+            # =================================================
+            # CAMERA FRAME
+            # =================================================
 
             frame = camera.read()
 
@@ -146,11 +177,15 @@ def main():
 
                 break
 
-            # -------------------------------------------------
-            # FPS
-            # -------------------------------------------------
+            # =================================================
+            # CURRENT TIME
+            # =================================================
 
             current_time = time.time()
+
+            # =================================================
+            # FPS
+            # =================================================
 
             delta_time = (
                 current_time
@@ -167,9 +202,9 @@ def main():
 
             previous_time = current_time
 
-            # -------------------------------------------------
+            # =================================================
             # FACE DETECTION
-            # -------------------------------------------------
+            # =================================================
 
             results = detector.process(
                 frame
@@ -179,40 +214,66 @@ def main():
                 results.multi_face_landmarks
             )
 
-            # -------------------------------------------------
-            # DEFAULT VALUES
-            # -------------------------------------------------
+            # =================================================
+            # DEFAULT DRIVER VALUES
+            # =================================================
 
             driver_values = {
+
                 "ear": 0.0,
+
                 "mar": 0.0,
+
                 "perclos": 0.0,
+
                 "eyes_closed": False,
+
                 "yawning": False,
+
                 "blink_count": 0,
+
                 "blink_duration": 0.0,
+
                 "microsleep_duration": 0.0,
+
                 "microsleep": False,
             }
 
+            # =================================================
+            # DEFAULT HEAD POSE
+            # =================================================
+
             pose_values = {
+
                 "pitch": 0.0,
+
                 "yaw": 0.0,
+
                 "roll": 0.0,
+
                 "valid": False,
             }
 
+            # =================================================
+            # DEFAULT GAZE
+            # =================================================
+
             gaze_values = {
+
                 "horizontal_ratio": 0.5,
+
                 "vertical_ratio": 0.5,
+
                 "gaze_direction": "UNKNOWN",
+
                 "gaze_away_duration": 0.0,
+
                 "prolonged_gaze_away": False,
             }
 
-            # -------------------------------------------------
+            # =================================================
             # FACE DETECTED
-            # -------------------------------------------------
+            # =================================================
 
             if face_detected:
 
@@ -228,42 +289,81 @@ def main():
                 # DRIVER METRICS
                 # ---------------------------------------------
 
-                driver_values = metrics.calculate(
-                    landmarks,
-                    timestamp=current_time,
+                driver_values = (
+                    metrics.calculate(
+                        landmarks,
+                        timestamp=current_time,
+                    )
                 )
 
                 # ---------------------------------------------
                 # HEAD POSE
                 # ---------------------------------------------
 
-                pose_values = head_pose.estimate(
-                    landmarks,
-                    frame.shape[1],
-                    frame.shape[0],
+                pose_values = (
+                    head_pose.estimate(
+                        landmarks,
+                        frame.shape[1],
+                        frame.shape[0],
+                    )
                 )
 
                 # ---------------------------------------------
                 # GAZE
                 # ---------------------------------------------
 
-                gaze_values = gaze.estimate(
-                    landmarks,
-                    timestamp=current_time,
+                gaze_values = (
+                    gaze.estimate(
+                        landmarks,
+                        timestamp=current_time,
+                    )
                 )
 
                 # ---------------------------------------------
-                # DRAW FACE LANDMARKS
+                # DRAW LANDMARKS
                 # ---------------------------------------------
 
-                frame = detector.draw_landmarks(
-                    frame,
-                    results,
+                frame = (
+                    detector.draw_landmarks(
+                        frame,
+                        results,
+                    )
                 )
 
-            # -------------------------------------------------
-            # PERCLOS HISTORY
-            # -------------------------------------------------
+            # =================================================
+            # DIRECT EYE CLOSURE TIMER
+            # =================================================
+
+            if (
+                face_detected
+                and driver_values[
+                    "eyes_closed"
+                ]
+            ):
+
+                # Start timer when eyes first close.
+                if eyes_closed_start_time is None:
+
+                    eyes_closed_start_time = (
+                        current_time
+                    )
+
+                # Calculate continuous closure.
+                current_eye_closure_duration = (
+                    current_time
+                    - eyes_closed_start_time
+                )
+
+            else:
+
+                # Eyes opened or face disappeared.
+                eyes_closed_start_time = None
+
+                current_eye_closure_duration = 0.0
+
+            # =================================================
+            # PERCLOS SAMPLE COUNT
+            # =================================================
 
             try:
 
@@ -275,9 +375,9 @@ def main():
 
                 perclos_sample_count = 0
 
-            # -------------------------------------------------
+            # =================================================
             # RELIABILITY
-            # -------------------------------------------------
+            # =================================================
 
             reliability_values = (
                 reliability.calculate(
@@ -292,28 +392,73 @@ def main():
                 )
             )
 
-            # -------------------------------------------------
+            # =================================================
             # ADAPTIVE FUSION
-            # -------------------------------------------------
+            # =================================================
 
-            fusion_values = fusion.calculate(
-                driver_values=driver_values,
-                pose_values=pose_values,
-                gaze_values=gaze_values,
-                reliability_values=(
-                    reliability_values
-                ),
+            fusion_values = (
+                fusion.calculate(
+                    driver_values=driver_values,
+                    pose_values=pose_values,
+                    gaze_values=gaze_values,
+                    reliability_values=(
+                        reliability_values
+                    ),
+                )
             )
 
-            # -------------------------------------------------
+            # =================================================
             # TEMPORAL ANALYSIS
-            # -------------------------------------------------
+            # =================================================
 
-            temporal_values = temporal.update(
-                fatigue_risk=(
-                    fusion_values["fatigue_risk"]
-                ),
-                timestamp=current_time,
+            temporal_values = (
+                temporal.update(
+                    fatigue_risk=(
+                        fusion_values[
+                            "fatigue_risk"
+                        ]
+                    ),
+                    timestamp=current_time,
+                )
+            )
+
+            # =================================================
+            # SAFETY INTERVENTION
+            # =================================================
+
+            intervention_values = (
+                intervention.update(
+                    fatigue_risk=(
+                        fusion_values[
+                            "fatigue_risk"
+                        ]
+                    ),
+                    temporal_state=(
+                        temporal_values[
+                            "state"
+                        ]
+                    ),
+                    reliability=(
+                        reliability_values[
+                            "overall_reliability"
+                        ]
+                    ),
+                    timestamp=current_time,
+
+                    # IMPORTANT:
+                    # Use our own direct eye timer.
+                    eyes_closed=(
+                        face_detected
+                        and
+                        driver_values[
+                            "eyes_closed"
+                        ]
+                    ),
+
+                    eye_closure_duration=(
+                        current_eye_closure_duration
+                    ),
+                )
             )
 
             # =================================================
@@ -322,10 +467,16 @@ def main():
 
             if face_detected:
 
+                # ---------------------------------------------
                 # EAR
+                # ---------------------------------------------
+
                 cv2.putText(
                     frame,
-                    f"EAR: {driver_values['ear']:.3f}",
+                    (
+                        f"EAR: "
+                        f"{driver_values['ear']:.3f}"
+                    ),
                     (20, 35),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.55,
@@ -333,10 +484,16 @@ def main():
                     2,
                 )
 
+                # ---------------------------------------------
                 # MAR
+                # ---------------------------------------------
+
                 cv2.putText(
                     frame,
-                    f"MAR: {driver_values['mar']:.3f}",
+                    (
+                        f"MAR: "
+                        f"{driver_values['mar']:.3f}"
+                    ),
                     (20, 65),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.55,
@@ -344,7 +501,10 @@ def main():
                     2,
                 )
 
+                # ---------------------------------------------
                 # PERCLOS
+                # ---------------------------------------------
+
                 cv2.putText(
                     frame,
                     (
@@ -358,7 +518,10 @@ def main():
                     2,
                 )
 
-                # BLINKS
+                # ---------------------------------------------
+                # BLINK COUNT
+                # ---------------------------------------------
+
                 cv2.putText(
                     frame,
                     (
@@ -372,16 +535,23 @@ def main():
                     2,
                 )
 
+                # ---------------------------------------------
                 # EYE STATUS
+                # ---------------------------------------------
+
                 eye_status = (
                     "EYES CLOSED"
-                    if driver_values["eyes_closed"]
+                    if driver_values[
+                        "eyes_closed"
+                    ]
                     else "EYES OPEN"
                 )
 
                 eye_color = (
                     (0, 165, 255)
-                    if driver_values["eyes_closed"]
+                    if driver_values[
+                        "eyes_closed"
+                    ]
                     else (0, 255, 0)
                 )
 
@@ -395,21 +565,52 @@ def main():
                     2,
                 )
 
+                # ---------------------------------------------
+                # DIRECT EYE CLOSURE TIMER
+                # ---------------------------------------------
+
+                cv2.putText(
+                    frame,
+                    (
+                        f"Eye Closed: "
+                        f"{current_eye_closure_duration:.1f}s"
+                    ),
+                    (20, 190),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.50,
+                    (
+                        (0, 0, 255)
+                        if current_eye_closure_duration >= 1.0
+                        else (255, 255, 255)
+                    ),
+                    2,
+                )
+
+                # ---------------------------------------------
                 # YAWNING
-                if driver_values["yawning"]:
+                # ---------------------------------------------
+
+                if driver_values[
+                    "yawning"
+                ]:
 
                     cv2.putText(
                         frame,
                         "YAWNING",
-                        (20, 195),
+                        (20, 225),
                         cv2.FONT_HERSHEY_SIMPLEX,
                         0.60,
                         (0, 165, 255),
                         2,
                     )
 
+                # ---------------------------------------------
                 # MICROSLEEP
-                if driver_values["microsleep"]:
+                # ---------------------------------------------
+
+                if driver_values[
+                    "microsleep"
+                ]:
 
                     cv2.putText(
                         frame,
@@ -417,15 +618,20 @@ def main():
                             "MICROSLEEP "
                             f"{driver_values['microsleep_duration']:.1f}s"
                         ),
-                        (20, 225),
+                        (20, 255),
                         cv2.FONT_HERSHEY_SIMPLEX,
                         0.60,
                         (0, 0, 255),
                         2,
                     )
 
+                # ---------------------------------------------
                 # HEAD POSE
-                if pose_values["valid"]:
+                # ---------------------------------------------
+
+                if pose_values[
+                    "valid"
+                ]:
 
                     cv2.putText(
                         frame,
@@ -433,7 +639,7 @@ def main():
                             f"Pitch: "
                             f"{pose_values['pitch']:.1f}"
                         ),
-                        (20, 260),
+                        (20, 290),
                         cv2.FONT_HERSHEY_SIMPLEX,
                         0.50,
                         (255, 255, 0),
@@ -446,7 +652,7 @@ def main():
                             f"Yaw: "
                             f"{pose_values['yaw']:.1f}"
                         ),
-                        (20, 285),
+                        (20, 315),
                         cv2.FONT_HERSHEY_SIMPLEX,
                         0.50,
                         (255, 255, 0),
@@ -459,28 +665,34 @@ def main():
                             f"Roll: "
                             f"{pose_values['roll']:.1f}"
                         ),
-                        (20, 310),
+                        (20, 340),
                         cv2.FONT_HERSHEY_SIMPLEX,
                         0.50,
                         (255, 255, 0),
                         2,
                     )
 
+                # ---------------------------------------------
                 # GAZE
+                # ---------------------------------------------
+
                 cv2.putText(
                     frame,
                     (
                         f"Gaze: "
                         f"{gaze_values['gaze_direction']}"
                     ),
-                    (20, 345),
+                    (20, 375),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.60,
                     (255, 0, 255),
                     2,
                 )
 
+                # ---------------------------------------------
                 # GAZE AWAY
+                # ---------------------------------------------
+
                 if gaze_values[
                     "prolonged_gaze_away"
                 ]:
@@ -491,7 +703,7 @@ def main():
                             "GAZE AWAY "
                             f"{gaze_values['gaze_away_duration']:.1f}s"
                         ),
-                        (20, 380),
+                        (20, 410),
                         cv2.FONT_HERSHEY_SIMPLEX,
                         0.55,
                         (0, 0, 255),
@@ -516,24 +728,28 @@ def main():
 
             cv2.putText(
                 frame,
-                "ADAPTIVE FUSION",
-                (500, 35),
+                "ADAPTIVE DMS",
+                (500, 30),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.60,
                 (255, 255, 255),
                 2,
             )
 
-            # -------------------------------------------------
+            # =================================================
             # FATIGUE RISK
-            # -------------------------------------------------
+            # =================================================
 
             fatigue_risk = (
-                fusion_values["fatigue_risk"]
+                fusion_values[
+                    "fatigue_risk"
+                ]
             )
 
             risk_level = (
-                fusion_values["risk_level"]
+                fusion_values[
+                    "risk_level"
+                ]
             )
 
             cv2.putText(
@@ -542,27 +758,51 @@ def main():
                     f"Fatigue Risk: "
                     f"{fatigue_risk:.2f}"
                 ),
-                (500, 70),
+                (500, 60),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.60,
+                0.55,
                 (0, 255, 255),
                 2,
             )
 
+            # =================================================
+            # RISK COLOR
+            # =================================================
+
             if risk_level == "NORMAL":
 
-                risk_color = (0, 255, 0)
+                risk_color = (
+                    0,
+                    255,
+                    0,
+                )
 
             elif risk_level in (
                 "LOW",
                 "MODERATE",
             ):
 
-                risk_color = (0, 255, 255)
+                risk_color = (
+                    0,
+                    255,
+                    255,
+                )
+
+            elif risk_level == "HIGH":
+
+                risk_color = (
+                    0,
+                    165,
+                    255,
+                )
 
             else:
 
-                risk_color = (0, 0, 255)
+                risk_color = (
+                    0,
+                    0,
+                    255,
+                )
 
             cv2.putText(
                 frame,
@@ -570,55 +810,16 @@ def main():
                     f"Risk Level: "
                     f"{risk_level}"
                 ),
-                (500, 105),
+                (500, 90),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.60,
+                0.55,
                 risk_color,
                 2,
             )
 
-            # -------------------------------------------------
-            # ADAPTIVE WEIGHTS
-            # -------------------------------------------------
-
-            cv2.putText(
-                frame,
-                "ADAPTIVE WEIGHTS",
-                (500, 140),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.48,
-                (255, 255, 255),
-                2,
-            )
-
-            weights = (
-                fusion_values[
-                    "adaptive_weights"
-                ]
-            )
-
-            y = 165
-
-            for signal, weight in weights.items():
-
-                cv2.putText(
-                    frame,
-                    (
-                        f"{signal}: "
-                        f"{weight:.2f}"
-                    ),
-                    (500, y),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.42,
-                    (255, 255, 255),
-                    1,
-                )
-
-                y += 20
-
-            # -------------------------------------------------
+            # =================================================
             # RELIABILITY
-            # -------------------------------------------------
+            # =================================================
 
             overall_reliability = (
                 reliability_values[
@@ -632,7 +833,7 @@ def main():
                     f"Reliability: "
                     f"{overall_reliability:.2f}"
                 ),
-                (500, y + 5),
+                (500, 120),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.48,
                 (255, 255, 255),
@@ -640,154 +841,198 @@ def main():
             )
 
             # =================================================
-            # TEMPORAL ANALYSIS
+            # TEMPORAL
             # =================================================
 
-            temporal_y = y + 40
-
-            cv2.putText(
-                frame,
-                "TEMPORAL ANALYSIS",
-                (500, temporal_y),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.48,
-                (255, 255, 255),
-                2,
-            )
-
-            # Temporal state
             temporal_state = (
-                temporal_values["state"]
+                temporal_values[
+                    "state"
+                ]
             )
-
-            if temporal_state == "STABLE":
-
-                temporal_color = (
-                    0,
-                    255,
-                    0,
-                )
-
-            elif temporal_state in (
-                "RISING",
-                "INCREASING",
-            ):
-
-                temporal_color = (
-                    0,
-                    255,
-                    255,
-                )
-
-            elif temporal_state in (
-                "HIGH",
-                "PERSISTENT",
-            ):
-
-                temporal_color = (
-                    0,
-                    165,
-                    255,
-                )
-
-            elif temporal_state == "CRITICAL":
-
-                temporal_color = (
-                    0,
-                    0,
-                    255,
-                )
-
-            else:
-
-                temporal_color = (
-                    255,
-                    255,
-                    255,
-                )
 
             cv2.putText(
                 frame,
                 (
-                    f"Temporal State: "
+                    f"Temporal: "
                     f"{temporal_state}"
                 ),
-                (500, temporal_y + 28),
+                (500, 150),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.48,
-                temporal_color,
+                0.50,
+                (255, 255, 255),
                 2,
             )
 
-            # 5 second average
             cv2.putText(
                 frame,
                 (
                     f"5s Avg: "
                     f"{temporal_values['short_average']:.2f}"
                 ),
-                (500, temporal_y + 52),
+                (500, 175),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.42,
+                0.43,
                 (255, 255, 255),
                 1,
             )
 
-            # 15 second average
             cv2.putText(
                 frame,
                 (
                     f"15s Avg: "
                     f"{temporal_values['medium_average']:.2f}"
                 ),
-                (500, temporal_y + 74),
+                (500, 198),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.42,
+                0.43,
                 (255, 255, 255),
                 1,
             )
 
-            # 30 second average
-            cv2.putText(
-                frame,
-                (
-                    f"30s Avg: "
-                    f"{temporal_values['long_average']:.2f}"
-                ),
-                (500, temporal_y + 96),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.42,
-                (255, 255, 255),
-                1,
-            )
-
-            # Trend
             cv2.putText(
                 frame,
                 (
                     f"Trend: "
                     f"{temporal_values['trend']:.3f}"
                 ),
-                (500, temporal_y + 118),
+                (500, 221),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.43,
+                (255, 255, 255),
+                1,
+            )
+
+            # =================================================
+            # SAFETY INTERVENTION
+            # =================================================
+
+            intervention_level = (
+                intervention_values[
+                    "level"
+                ]
+            )
+
+            intervention_action = (
+                intervention_values[
+                    "action"
+                ]
+            )
+
+            cv2.putText(
+                frame,
+                "SAFETY INTERVENTION",
+                (500, 255),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.48,
+                (255, 255, 255),
+                2,
+            )
+
+            cv2.putText(
+                frame,
+                (
+                    f"Level: "
+                    f"{intervention_level}"
+                ),
+                (500, 282),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.55,
+                risk_color,
+                2,
+            )
+
+            cv2.putText(
+                frame,
+                (
+                    f"Action: "
+                    f"{intervention_action}"
+                ),
+                (500, 310),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.42,
                 (255, 255, 255),
                 1,
             )
 
-            # Samples
             cv2.putText(
                 frame,
                 (
-                    f"Samples: "
-                    f"{temporal_values['history_samples']}"
+                    f"Alerts: "
+                    f"{intervention_values['alert_count']}"
                 ),
-                (500, temporal_y + 140),
+                (500, 335),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.42,
                 (255, 255, 255),
                 1,
             )
+
+            # =================================================
+            # EYE-CLOSURE TRIGGER STATUS
+            # =================================================
+
+            if (
+                current_eye_closure_duration
+                >= 1.0
+            ):
+
+                cv2.putText(
+                    frame,
+                    (
+                        "EYE CLOSURE WARNING"
+                    ),
+                    (500, 365),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.48,
+                    (0, 0, 255),
+                    2,
+                )
+
+            # =================================================
+            # HIGH / CRITICAL WARNING
+            # =================================================
+
+            if intervention_level in (
+                "HIGH",
+                "CRITICAL",
+            ):
+
+                cv2.rectangle(
+                    frame,
+                    (10, 10),
+                    (
+                        frame.shape[1] - 10,
+                        frame.shape[0] - 10,
+                    ),
+                    (0, 0, 255),
+                    3,
+                )
+
+                cv2.putText(
+                    frame,
+                    intervention_values[
+                        "message"
+                    ],
+                    (500, 395),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.48,
+                    (0, 0, 255),
+                    2,
+                )
+
+            elif intervention_level == "MODERATE":
+
+                cv2.putText(
+                    frame,
+                    intervention_values[
+                        "message"
+                    ],
+                    (500, 395),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.48,
+                    (0, 165, 255),
+                    2,
+                )
 
             # =================================================
             # FPS
@@ -801,7 +1046,7 @@ def main():
                     35,
                 ),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.60,
+                0.55,
                 (255, 255, 255),
                 2,
             )
@@ -822,7 +1067,7 @@ def main():
                     frame.shape[0] - 50,
                 ),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.60,
+                0.55,
                 (
                     (0, 255, 0)
                     if face_detected
@@ -860,7 +1105,6 @@ def main():
             key = cv2.waitKey(1) & 0xFF
 
             if key == ord("q"):
-
                 break
 
     except KeyboardInterrupt:
