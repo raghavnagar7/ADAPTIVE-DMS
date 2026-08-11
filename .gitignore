@@ -33,3 +33,5 @@ dataset/processed/
 # OS
 .DS_Store
 Thumbs.db
+# Session logs
+logs/

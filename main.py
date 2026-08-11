@@ -5,7 +5,7 @@ Adaptive Multimodal Driver State Monitoring
 and Predictive Safety Intervention System.
 
 Version:
-    v0.8
+    v0.9
 
 Features:
     - Webcam
@@ -22,6 +22,7 @@ Features:
     - Temporal Fatigue Analysis
     - Adaptive Safety Intervention
     - Direct 1.5-second Eye Closure Alert
+    - Session Data Logging
 """
 
 import time
@@ -37,22 +38,21 @@ from src.reliability import SignalReliabilityEstimator
 from src.fusion import AdaptiveMultimodalFusion
 from src.temporal import TemporalFatiguePredictor
 from src.intervention import AdaptiveSafetyIntervention
+from src.logger import SessionLogger
 
 
 def main():
 
     print("=" * 70)
-
     print("ADAPTIVE-DMS")
-
     print(
         "Adaptive Multimodal Driver State Monitoring "
         "and Predictive Safety Intervention System"
     )
-
     print("=" * 70)
 
     print("Starting camera...")
+    print("Starting session logger...")
     print("Press Q to quit.")
     print()
 
@@ -144,6 +144,20 @@ def main():
         cooldown_seconds=5.0,
         eye_closure_trigger_seconds=1.5,
     )
+
+    # =========================================================
+    # SESSION LOGGER
+    # =========================================================
+
+    logger = SessionLogger(
+        log_directory="logs"
+    )
+
+    print(
+        f"Session log: {logger.file_path}"
+    )
+
+    print()
 
     # =========================================================
     # FPS
@@ -341,14 +355,12 @@ def main():
                 ]
             ):
 
-                # Start timer when eyes first close.
                 if eyes_closed_start_time is None:
 
                     eyes_closed_start_time = (
                         current_time
                     )
 
-                # Calculate continuous closure.
                 current_eye_closure_duration = (
                     current_time
                     - eyes_closed_start_time
@@ -356,7 +368,6 @@ def main():
 
             else:
 
-                # Eyes opened or face disappeared.
                 eyes_closed_start_time = None
 
                 current_eye_closure_duration = 0.0
@@ -376,7 +387,7 @@ def main():
                 perclos_sample_count = 0
 
             # =================================================
-            # RELIABILITY
+            # SIGNAL RELIABILITY
             # =================================================
 
             reliability_values = (
@@ -393,7 +404,7 @@ def main():
             )
 
             # =================================================
-            # ADAPTIVE FUSION
+            # ADAPTIVE MULTIMODAL FUSION
             # =================================================
 
             fusion_values = (
@@ -444,9 +455,6 @@ def main():
                         ]
                     ),
                     timestamp=current_time,
-
-                    # IMPORTANT:
-                    # Use our own direct eye timer.
                     eyes_closed=(
                         face_detected
                         and
@@ -454,11 +462,30 @@ def main():
                             "eyes_closed"
                         ]
                     ),
-
                     eye_closure_duration=(
                         current_eye_closure_duration
                     ),
                 )
+            )
+
+            # =================================================
+            # LOG DATA
+            # =================================================
+
+            logger.log(
+                timestamp=current_time,
+                driver_values=driver_values,
+                pose_values=pose_values,
+                gaze_values=gaze_values,
+                reliability_values=reliability_values,
+                fusion_values=fusion_values,
+                temporal_values=temporal_values,
+                intervention_values=(
+                    intervention_values
+                ),
+                eye_closure_duration=(
+                    current_eye_closure_duration
+                ),
             )
 
             # =================================================
@@ -566,7 +593,7 @@ def main():
                 )
 
                 # ---------------------------------------------
-                # DIRECT EYE CLOSURE TIMER
+                # EYE CLOSURE TIMER
                 # ---------------------------------------------
 
                 cv2.putText(
@@ -968,7 +995,7 @@ def main():
             )
 
             # =================================================
-            # EYE-CLOSURE TRIGGER STATUS
+            # EYE-CLOSURE WARNING
             # =================================================
 
             if (
@@ -978,9 +1005,7 @@ def main():
 
                 cv2.putText(
                     frame,
-                    (
-                        "EYE CLOSURE WARNING"
-                    ),
+                    "EYE CLOSURE WARNING",
                     (500, 365),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.48,
@@ -1094,7 +1119,7 @@ def main():
             )
 
             # =================================================
-            # SHOW FRAME
+            # DISPLAY
             # =================================================
 
             cv2.imshow(
@@ -1105,6 +1130,7 @@ def main():
             key = cv2.waitKey(1) & 0xFF
 
             if key == ord("q"):
+
                 break
 
     except KeyboardInterrupt:
@@ -1115,6 +1141,29 @@ def main():
         )
 
     finally:
+
+        # =====================================================
+        # CLOSE LOGGER
+        # =====================================================
+
+        try:
+
+            logger.close()
+
+            print(
+                f"Session log saved: "
+                f"{logger.file_path}"
+            )
+
+        except Exception as error:
+
+            print(
+                f"Logger close error: {error}"
+            )
+
+        # =====================================================
+        # RELEASE RESOURCES
+        # =====================================================
 
         detector.close()
 
