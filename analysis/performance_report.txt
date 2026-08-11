@@ -1,0 +1,36 @@
+ADAPTIVE-DMS PERFORMANCE REPORT
+============================================================
+
+Source Session: logs\session_20260812_001434.csv
+Session Duration: 17.80 seconds
+Samples Recorded: 511
+
+DRIVER METRICS
+----------------------------------------
+Average EAR: 0.421
+Average PERCLOS: 0.035
+Average Fatigue Risk: 0.061
+Maximum Fatigue Risk: 0.517
+Average Reliability: 0.909
+
+SAFETY EVENTS
+----------------------------------------
+Eye Closure Events: 1
+Maximum Eye Closure: 2.69 seconds
+High/Critical Samples: 0
+Safety Alerts: 1
+
+RISK DISTRIBUTION
+----------------------------------------
+NORMAL: 450 samples (88.06%)
+LOW: 48 samples (9.39%)
+MODERATE: 13 samples (2.54%)
+HIGH: 0 samples (0.00%)
+CRITICAL: 0 samples (0.00%)
+
+ALERT RESPONSE
+----------------------------------------
+Measured Events: 1
+Average Response Time: 1.503 seconds
+Fastest Response: 1.503 seconds
+Slowest Response: 1.503 seconds
