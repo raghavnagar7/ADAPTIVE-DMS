@@ -5,7 +5,7 @@ Adaptive Multimodal Driver State Monitoring
 and Predictive Safety Intervention System.
 
 Version:
-    v1.4
+    v1.6
 
 Features:
     - Webcam
@@ -24,6 +24,8 @@ Features:
     - Direct 1.5-second Eye Closure Alert
     - Session Data Logging
     - Live Dashboard Camera Frame
+    - Event Tracking
+    - Alert/Event History
 """
 
 import os
@@ -41,6 +43,7 @@ from src.fusion import AdaptiveMultimodalFusion
 from src.temporal import TemporalFatiguePredictor
 from src.intervention import AdaptiveSafetyIntervention
 from src.logger import SessionLogger
+from src.event_tracker import EventTracker
 
 
 # =============================================================
@@ -65,8 +68,7 @@ def save_live_frame(frame):
     Save the processed camera frame for Streamlit.
 
     Uses a temporary file first and then replaces the old
-    frame. This prevents Streamlit from reading a half-written
-    JPEG.
+    frame so Streamlit does not read a partially written JPEG.
     """
 
     try:
@@ -103,6 +105,7 @@ def save_live_frame(frame):
         )
 
     except Exception:
+
         pass
 
 
@@ -125,6 +128,7 @@ def main():
 
     print("Starting camera...")
     print("Starting session logger...")
+    print("Starting event tracker...")
     print("Starting live dashboard frame...")
     print("Press Q to quit.")
     print()
@@ -226,8 +230,22 @@ def main():
         log_directory="logs"
     )
 
+    # =========================================================
+    # EVENT TRACKER - v1.6
+    # =========================================================
+
+    event_tracker = EventTracker(
+        log_directory="logs",
+        eye_closure_threshold=1.5,
+        event_cooldown=2.0,
+    )
+
     print(
         f"Session log: {logger.file_path}"
+    )
+
+    print(
+        f"Event log: {event_tracker.file_path}"
     )
 
     print()
@@ -252,11 +270,11 @@ def main():
 
     frame_counter = 0
 
-    # Save one frame every 2 processed frames.
-    # This reduces unnecessary disk writes while keeping
-    # the dashboard visually live.
-
     live_frame_interval = 2
+
+    # =========================================================
+    # MAIN LOOP
+    # =========================================================
 
     try:
 
@@ -560,7 +578,7 @@ def main():
             )
 
             # =================================================
-            # LOG DATA
+            # SESSION LOGGING
             # =================================================
 
             logger.log(
@@ -580,10 +598,33 @@ def main():
             )
 
             # =================================================
+            # EVENT TRACKING - v1.6
+            # =================================================
+
+            event_values = (
+                event_tracker.update(
+                    timestamp=current_time,
+                    driver_values=driver_values,
+                    gaze_values=gaze_values,
+                    fusion_values=fusion_values,
+                    intervention_values=(
+                        intervention_values
+                    ),
+                    eye_closure_duration=(
+                        current_eye_closure_duration
+                    ),
+                )
+            )
+
+            # =================================================
             # LEFT PANEL
             # =================================================
 
             if face_detected:
+
+                # ---------------------------------------------
+                # EAR
+                # ---------------------------------------------
 
                 cv2.putText(
                     frame,
@@ -598,6 +639,10 @@ def main():
                     2,
                 )
 
+                # ---------------------------------------------
+                # MAR
+                # ---------------------------------------------
+
                 cv2.putText(
                     frame,
                     (
@@ -610,6 +655,10 @@ def main():
                     (0, 255, 0),
                     2,
                 )
+
+                # ---------------------------------------------
+                # PERCLOS
+                # ---------------------------------------------
 
                 cv2.putText(
                     frame,
@@ -624,6 +673,10 @@ def main():
                     2,
                 )
 
+                # ---------------------------------------------
+                # BLINK COUNT
+                # ---------------------------------------------
+
                 cv2.putText(
                     frame,
                     (
@@ -637,7 +690,10 @@ def main():
                     2,
                 )
 
-                # Eye status
+                # ---------------------------------------------
+                # EYE STATUS
+                # ---------------------------------------------
+
                 eye_status = (
                     "EYES CLOSED"
                     if driver_values[
@@ -664,7 +720,10 @@ def main():
                     2,
                 )
 
-                # Eye closure timer
+                # ---------------------------------------------
+                # EYE CLOSURE TIMER
+                # ---------------------------------------------
+
                 cv2.putText(
                     frame,
                     (
@@ -682,7 +741,10 @@ def main():
                     2,
                 )
 
-                # Yawning
+                # ---------------------------------------------
+                # YAWNING
+                # ---------------------------------------------
+
                 if driver_values[
                     "yawning"
                 ]:
@@ -697,7 +759,10 @@ def main():
                         2,
                     )
 
-                # Microsleep
+                # ---------------------------------------------
+                # MICROSLEEP
+                # ---------------------------------------------
+
                 if driver_values[
                     "microsleep"
                 ]:
@@ -715,7 +780,10 @@ def main():
                         2,
                     )
 
-                # Head pose
+                # ---------------------------------------------
+                # HEAD POSE
+                # ---------------------------------------------
+
                 if pose_values[
                     "valid"
                 ]:
@@ -759,7 +827,10 @@ def main():
                         2,
                     )
 
-                # Gaze
+                # ---------------------------------------------
+                # GAZE
+                # ---------------------------------------------
+
                 cv2.putText(
                     frame,
                     (
@@ -773,7 +844,10 @@ def main():
                     2,
                 )
 
-                # Gaze away
+                # ---------------------------------------------
+                # GAZE AWAY
+                # ---------------------------------------------
+
                 if gaze_values[
                     "prolonged_gaze_away"
                 ]:
@@ -817,7 +891,10 @@ def main():
                 2,
             )
 
-            # Fatigue risk
+            # =================================================
+            # FATIGUE RISK
+            # =================================================
+
             fatigue_risk = (
                 fusion_values[
                     "fatigue_risk"
@@ -843,7 +920,10 @@ def main():
                 2,
             )
 
-            # Risk color
+            # =================================================
+            # RISK COLOR
+            # =================================================
+
             if risk_level == "NORMAL":
 
                 risk_color = (
@@ -892,7 +972,10 @@ def main():
                 2,
             )
 
-            # Reliability
+            # =================================================
+            # RELIABILITY
+            # =================================================
+
             overall_reliability = (
                 reliability_values[
                     "overall_reliability"
@@ -912,7 +995,10 @@ def main():
                 2,
             )
 
-            # Temporal
+            # =================================================
+            # TEMPORAL
+            # =================================================
+
             temporal_state = (
                 temporal_values[
                     "state"
@@ -1036,7 +1122,10 @@ def main():
                 1,
             )
 
-            # Eye closure warning
+            # =================================================
+            # EYE-CLOSURE WARNING
+            # =================================================
+
             if (
                 current_eye_closure_duration
                 >= 1.0
@@ -1052,7 +1141,10 @@ def main():
                     2,
                 )
 
-            # High / critical warning
+            # =================================================
+            # HIGH / CRITICAL WARNING
+            # =================================================
+
             if intervention_level in (
                 "HIGH",
                 "CRITICAL",
@@ -1094,6 +1186,33 @@ def main():
                     (0, 165, 255),
                     2,
                 )
+
+            # =================================================
+            # EVENT COUNT
+            # =================================================
+
+            try:
+
+                event_count = event_values[
+                    "event_count"
+                ]
+
+            except Exception:
+
+                event_count = 0
+
+            cv2.putText(
+                frame,
+                (
+                    f"Events: "
+                    f"{event_count}"
+                ),
+                (500, 425),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.42,
+                (255, 255, 255),
+                1,
+            )
 
             # =================================================
             # FPS
@@ -1155,7 +1274,7 @@ def main():
             )
 
             # =================================================
-            # SAVE LIVE FRAME FOR STREAMLIT
+            # SAVE LIVE FRAME
             # =================================================
 
             if (
@@ -1169,7 +1288,7 @@ def main():
                 )
 
             # =================================================
-            # LOCAL CAMERA WINDOW
+            # DISPLAY
             # =================================================
 
             cv2.imshow(
@@ -1186,17 +1305,26 @@ def main():
 
                 break
 
+    # =========================================================
+    # KEYBOARD INTERRUPT
+    # =========================================================
+
     except KeyboardInterrupt:
 
         print()
+
         print(
             "Program interrupted by user."
         )
 
+    # =========================================================
+    # CLEANUP
+    # =========================================================
+
     finally:
 
         # =====================================================
-        # CLOSE LOGGER
+        # CLOSE SESSION LOGGER
         # =====================================================
 
         try:
@@ -1216,25 +1344,73 @@ def main():
             )
 
         # =====================================================
-        # RELEASE RESOURCES
+        # CLOSE EVENT TRACKER
         # =====================================================
 
         try:
-            detector.close()
-        except Exception:
-            pass
+
+            event_tracker.close()
+
+            print(
+                f"Event log saved: "
+                f"{event_tracker.file_path}"
+            )
+
+        except Exception as error:
+
+            print(
+                f"Event tracker close error: "
+                f"{error}"
+            )
+
+        # =====================================================
+        # RELEASE DETECTOR
+        # =====================================================
 
         try:
+
+            detector.close()
+
+        except Exception as error:
+
+            print(
+                f"Detector close error: "
+                f"{error}"
+            )
+
+        # =====================================================
+        # RELEASE CAMERA
+        # =====================================================
+
+        try:
+
             camera.release()
-        except Exception:
-            pass
+
+        except Exception as error:
+
+            print(
+                f"Camera release error: "
+                f"{error}"
+            )
+
+        # =====================================================
+        # CLOSE OPENCV WINDOWS
+        # =====================================================
 
         cv2.destroyAllWindows()
 
         print()
+
         print("=" * 70)
-        print("Camera released.")
-        print("ADAPTIVE-DMS stopped.")
+
+        print(
+            "Camera released."
+        )
+
+        print(
+            "ADAPTIVE-DMS stopped."
+        )
+
         print("=" * 70)
 
 
@@ -1243,4 +1419,5 @@ def main():
 # =============================================================
 
 if __name__ == "__main__":
+
     main()

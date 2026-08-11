@@ -4,7 +4,7 @@ ADAPTIVE-DMS
 Real-Time Monitoring Dashboard
 
 Version:
-    v1.5
+    v1.6
 
 Features:
     - Memory-safe CSV loading
@@ -25,6 +25,8 @@ Features:
     - Signal reliability
     - Safety intervention
     - Live graphs
+    - Event and Alert Timeline
+    - Event Statistics
 """
 
 import os
@@ -43,9 +45,16 @@ import plotly.graph_objects as go
 
 MAX_ROWS = 1500
 
+MAX_EVENTS = 300
+
 LIVE_FRAME_PATH = os.path.join(
     "logs",
     "live_frame.jpg",
+)
+
+EVENT_FILE_PATH = os.path.join(
+    "logs",
+    "events.csv",
 )
 
 LIVE_FRAME_TIMEOUT = 5.0
@@ -146,7 +155,7 @@ with st.sidebar:
     )
 
     st.write(
-        "Version: **v1.5**"
+        "Version: **v1.6**"
     )
 
     st.write(
@@ -280,7 +289,7 @@ def is_live_frame_active():
 
 
 # =============================================================
-# MEMORY-SAFE CSV LOADER
+# MEMORY-SAFE SESSION CSV LOADER
 # =============================================================
 
 @st.cache_data(ttl=2)
@@ -330,7 +339,7 @@ def load_recent_data(
             return pd.DataFrame()
 
         # -----------------------------------------------------
-        # Read only last 512 KB
+        # Read last 512 KB only
         # -----------------------------------------------------
 
         max_bytes = 512 * 1024
@@ -363,7 +372,6 @@ def load_recent_data(
 
             return pd.DataFrame()
 
-        # First line may be incomplete.
         data_lines = lines[1:]
 
         if not data_lines:
@@ -401,7 +409,7 @@ def load_recent_data(
         )
 
         # -----------------------------------------------------
-        # Data
+        # Parse rows
         # -----------------------------------------------------
 
         reader = csv.reader(
@@ -491,29 +499,17 @@ def load_recent_data(
         numeric_columns = [
 
             "ear",
-
             "mar",
-
             "perclos",
-
             "blink_count",
-
             "blink_duration",
-
             "microsleep_duration",
-
             "pitch",
-
             "yaw",
-
             "roll",
-
             "gaze_away_duration",
-
             "reliability",
-
             "fatigue_risk",
-
             "eye_closure_duration",
         ]
 
@@ -533,9 +529,7 @@ def load_recent_data(
         boolean_columns = [
 
             "eyes_closed",
-
             "microsleep",
-
             "alert_triggered",
         ]
 
@@ -560,7 +554,7 @@ def load_recent_data(
                 )
 
         # -----------------------------------------------------
-        # Elapsed time
+        # Elapsed seconds
         # -----------------------------------------------------
 
         df["elapsed_seconds"] = (
@@ -569,6 +563,207 @@ def load_recent_data(
         ).dt.total_seconds()
 
         return df
+
+    except (
+        OSError,
+        PermissionError,
+        MemoryError,
+        UnicodeError,
+        csv.Error,
+    ):
+
+        return pd.DataFrame()
+
+
+# =============================================================
+# EVENT CSV LOADER
+# =============================================================
+
+@st.cache_data(ttl=2)
+def load_events(
+    file_path,
+    file_modified_time,
+):
+
+    try:
+
+        if not os.path.exists(
+            file_path
+        ):
+
+            return pd.DataFrame(
+                columns=[
+                    "timestamp",
+                    "event_type",
+                    "severity",
+                    "message",
+                ]
+            )
+
+        file_size = os.path.getsize(
+            file_path
+        )
+
+        if file_size <= 0:
+
+            return pd.DataFrame(
+                columns=[
+                    "timestamp",
+                    "event_type",
+                    "severity",
+                    "message",
+                ]
+            )
+
+        # -----------------------------------------------------
+        # Read only a limited amount of event data
+        # -----------------------------------------------------
+
+        max_bytes = 256 * 1024
+
+        bytes_to_read = min(
+            file_size,
+            max_bytes,
+        )
+
+        with open(
+            file_path,
+            "rb",
+        ) as file:
+
+            file.seek(
+                -bytes_to_read,
+                os.SEEK_END,
+            )
+
+            raw_data = file.read()
+
+        text = raw_data.decode(
+            "utf-8",
+            errors="ignore",
+        )
+
+        lines = text.splitlines()
+
+        if not lines:
+
+            return pd.DataFrame()
+
+        # -----------------------------------------------------
+        # Find header
+        # -----------------------------------------------------
+
+        header = (
+            "timestamp,event_type,severity,message"
+        )
+
+        header_index = -1
+
+        for index, line in enumerate(
+            lines
+        ):
+
+            if line.strip() == header:
+
+                header_index = index
+
+                break
+
+        if header_index >= 0:
+
+            data_lines = lines[
+                header_index + 1:
+            ]
+
+        else:
+
+            data_lines = lines
+
+        if not data_lines:
+
+            return pd.DataFrame(
+                columns=[
+                    "timestamp",
+                    "event_type",
+                    "severity",
+                    "message",
+                ]
+            )
+
+        # -----------------------------------------------------
+        # Limit events
+        # -----------------------------------------------------
+
+        if len(data_lines) > MAX_EVENTS:
+
+            data_lines = data_lines[
+                -MAX_EVENTS:
+            ]
+
+        reader = csv.reader(
+            data_lines
+        )
+
+        rows = []
+
+        for row in reader:
+
+            if len(row) < 4:
+
+                continue
+
+            rows.append(
+                [
+                    row[0],
+                    row[1],
+                    row[2],
+                    ",".join(
+                        row[3:]
+                    ),
+                ]
+            )
+
+        if not rows:
+
+            return pd.DataFrame()
+
+        df = pd.DataFrame(
+            rows,
+            columns=[
+                "timestamp",
+                "event_type",
+                "severity",
+                "message",
+            ],
+        )
+
+        # -----------------------------------------------------
+        # Convert timestamp
+        # -----------------------------------------------------
+
+        df["timestamp"] = pd.to_datetime(
+            df["timestamp"],
+            errors="coerce",
+        )
+
+        df = df.dropna(
+            subset=[
+                "timestamp"
+            ]
+        )
+
+        # -----------------------------------------------------
+        # Sort newest first
+        # -----------------------------------------------------
+
+        df = df.sort_values(
+            "timestamp",
+            ascending=False,
+        )
+
+        return df.reset_index(
+            drop=True
+        )
 
     except (
         OSError,
@@ -616,7 +811,7 @@ else:
 
 
 # =============================================================
-# TOP STATUS BAR
+# TOP HEADER
 # =============================================================
 
 st.subheader(
@@ -669,7 +864,7 @@ with status_col3:
     if session_active:
 
         st.success(
-            "📝 SESSION ACTIVE"
+            "📝 SESSION AVAILABLE"
         )
 
     else:
@@ -692,7 +887,7 @@ with status_col4:
 
 
 # =============================================================
-# NO SESSION HANDLING
+# NO SESSION
 # =============================================================
 
 if session_file is None:
@@ -704,15 +899,15 @@ if session_file is None:
     )
 
     st.info(
-        "Start main.py and wait for the session logger "
-        "to create a session file."
+        "Start main.py and wait for the "
+        "session logger to create a session."
     )
 
     st.stop()
 
 
 # =============================================================
-# FILE MODIFICATION TIME
+# SESSION FILE TIME
 # =============================================================
 
 try:
@@ -727,7 +922,7 @@ except Exception:
 
 
 # =============================================================
-# LOAD DATA
+# LOAD SESSION DATA
 # =============================================================
 
 df = load_recent_data(
@@ -754,7 +949,36 @@ if df.empty:
 
 
 # =============================================================
-# LATEST ROW
+# LOAD EVENTS
+# =============================================================
+
+if os.path.exists(
+    EVENT_FILE_PATH
+):
+
+    try:
+
+        event_modified_time = os.path.getmtime(
+            EVENT_FILE_PATH
+        )
+
+    except Exception:
+
+        event_modified_time = time.time()
+
+else:
+
+    event_modified_time = time.time()
+
+
+events_df = load_events(
+    EVENT_FILE_PATH,
+    event_modified_time,
+)
+
+
+# =============================================================
+# LATEST SESSION DATA
 # =============================================================
 
 latest = df.iloc[-1]
@@ -869,12 +1093,12 @@ gaze_direction = safe_text(
 
 
 # =============================================================
-# ALERT COUNT
+# SESSION ALERT COUNT
 # =============================================================
 
 if "alert_triggered" in df.columns:
 
-    alert_count = int(
+    session_alert_count = int(
         pd.to_numeric(
             df[
                 "alert_triggered"
@@ -887,33 +1111,88 @@ if "alert_triggered" in df.columns:
 
 else:
 
-    alert_count = 0
+    session_alert_count = 0
 
 
 # =============================================================
-# SESSION DURATION
+# EVENT COUNTS
 # =============================================================
 
-if "elapsed_seconds" in df.columns:
+if events_df.empty:
 
-    session_duration = safe_float(
-        df[
-            "elapsed_seconds"
-        ].iloc[-1]
-    )
+    total_events = 0
+
+    eye_closure_events = 0
+
+    microsleep_events = 0
+
+    yawning_events = 0
+
+    gaze_away_events = 0
+
+    risk_transition_events = 0
+
+    intervention_events = 0
 
 else:
 
-    session_duration = 0.0
+    total_events = len(
+        events_df
+    )
 
+    eye_closure_events = int(
+        (
+            events_df[
+                "event_type"
+            ]
+            == "EYE_CLOSURE"
+        ).sum()
+    )
 
-session_minutes = int(
-    session_duration // 60
-)
+    microsleep_events = int(
+        (
+            events_df[
+                "event_type"
+            ]
+            == "MICROSLEEP"
+        ).sum()
+    )
 
-session_seconds = int(
-    session_duration % 60
-)
+    yawning_events = int(
+        (
+            events_df[
+                "event_type"
+            ]
+            == "YAWNING"
+        ).sum()
+    )
+
+    gaze_away_events = int(
+        (
+            events_df[
+                "event_type"
+            ]
+            == "GAZE_AWAY"
+        ).sum()
+    )
+
+    risk_transition_events = int(
+        (
+            events_df[
+                "event_type"
+            ]
+            == "RISK_TRANSITION"
+        ).sum()
+    )
+
+    intervention_events = int(
+        (
+            events_df[
+                "event_type"
+            ]
+            == "INTERVENTION"
+        ).sum()
+    )
 
 
 # =============================================================
@@ -981,6 +1260,28 @@ c1, c2, c3, c4 = st.columns(
 )
 
 
+if "elapsed_seconds" in df.columns:
+
+    session_duration = safe_float(
+        df[
+            "elapsed_seconds"
+        ].iloc[-1]
+    )
+
+else:
+
+    session_duration = 0.0
+
+
+session_minutes = int(
+    session_duration // 60
+)
+
+session_seconds = int(
+    session_duration % 60
+)
+
+
 with c1:
 
     st.metric(
@@ -995,16 +1296,16 @@ with c1:
 with c2:
 
     st.metric(
-        "🚨 Total Alerts",
-        alert_count,
+        "🚨 Alerts",
+        session_alert_count,
     )
 
 
 with c3:
 
     st.metric(
-        "📈 Samples",
-        len(df),
+        "📊 Events",
+        total_events,
     )
 
 
@@ -1173,7 +1474,7 @@ with right:
 
         st.metric(
             "🚨 Alerts",
-            alert_count,
+            session_alert_count,
         )
 
 
@@ -1288,6 +1589,227 @@ with eye_col2:
         st.success(
             "🟢 Eyes open"
         )
+
+
+# =============================================================
+# EVENT STATISTICS
+# =============================================================
+
+st.divider()
+
+st.subheader(
+    "📊 Event Statistics"
+)
+
+e1, e2, e3, e4, e5, e6 = st.columns(
+    6
+)
+
+
+with e1:
+
+    st.metric(
+        "👁️ Eye Closure",
+        eye_closure_events,
+    )
+
+
+with e2:
+
+    st.metric(
+        "😴 Microsleep",
+        microsleep_events,
+    )
+
+
+with e3:
+
+    st.metric(
+        "😮 Yawning",
+        yawning_events,
+    )
+
+
+with e4:
+
+    st.metric(
+        "👀 Gaze Away",
+        gaze_away_events,
+    )
+
+
+with e5:
+
+    st.metric(
+        "⚠️ Risk Changes",
+        risk_transition_events,
+    )
+
+
+with e6:
+
+    st.metric(
+        "🔔 Interventions",
+        intervention_events,
+    )
+
+
+# =============================================================
+# EVENT TIMELINE
+# =============================================================
+
+st.divider()
+
+st.subheader(
+    "🚨 Event & Alert Timeline"
+)
+
+if events_df.empty:
+
+    st.info(
+        "No events recorded yet."
+    )
+
+    st.caption(
+        "Events will appear here when "
+        "eye closure, microsleep, yawning, "
+        "gaze-away, risk transitions, or "
+        "interventions are detected."
+    )
+
+else:
+
+    # ---------------------------------------------------------
+    # Timeline chart
+    # ---------------------------------------------------------
+
+    timeline_df = events_df.copy()
+
+    timeline_df[
+        "event_number"
+    ] = range(
+        len(timeline_df),
+        0,
+        -1,
+    )
+
+    event_type_numbers = {
+        "EYE_CLOSURE": 1,
+        "MICROSLEEP": 2,
+        "YAWNING": 3,
+        "GAZE_AWAY": 4,
+        "RISK_TRANSITION": 5,
+        "INTERVENTION": 6,
+    }
+
+    timeline_df[
+        "event_y"
+    ] = (
+        timeline_df[
+            "event_type"
+        ]
+        .map(
+            event_type_numbers
+        )
+        .fillna(7)
+    )
+
+    fig_events = go.Figure()
+
+    fig_events.add_trace(
+        go.Scatter(
+            x=timeline_df[
+                "timestamp"
+            ],
+            y=timeline_df[
+                "event_y"
+            ],
+            mode="markers",
+            text=timeline_df[
+                "event_type"
+            ],
+            customdata=timeline_df[
+                [
+                    "severity",
+                    "message",
+                ]
+            ],
+            hovertemplate=(
+                "<b>%{text}</b><br>"
+                "Time: %{x}<br>"
+                "Severity: %{customdata[0]}<br>"
+                "%{customdata[1]}"
+                "<extra></extra>"
+            ),
+            marker=dict(
+                size=12,
+            ),
+            name="Events",
+        )
+    )
+
+    fig_events.update_yaxes(
+        tickmode="array",
+        tickvals=[
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+        ],
+        ticktext=[
+            "Eye Closure",
+            "Microsleep",
+            "Yawning",
+            "Gaze Away",
+            "Risk Transition",
+            "Intervention",
+        ],
+    )
+
+    fig_events.update_layout(
+        xaxis_title="Timestamp",
+        yaxis_title="Event Type",
+        height=420,
+        showlegend=False,
+    )
+
+    st.plotly_chart(
+        fig_events,
+        use_container_width=True,
+    )
+
+    # ---------------------------------------------------------
+    # Event table
+    # ---------------------------------------------------------
+
+    st.subheader(
+        "📋 Recent Events"
+    )
+
+    display_events = events_df[
+        [
+            "timestamp",
+            "event_type",
+            "severity",
+            "message",
+        ]
+    ].copy()
+
+    display_events[
+        "timestamp"
+    ] = display_events[
+        "timestamp"
+    ].dt.strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+
+    st.dataframe(
+        display_events,
+        use_container_width=True,
+        hide_index=True,
+    )
 
 
 # =============================================================
@@ -1581,7 +2103,7 @@ with c3:
 
     st.metric(
         "Total Alerts",
-        alert_count,
+        session_alert_count,
     )
 
 
@@ -1657,8 +2179,10 @@ with c2:
     )
 
     st.write(
-        f"{session_minutes:02d}:"
-        f"{session_seconds:02d}"
+        (
+            f"{session_minutes:02d}:"
+            f"{session_seconds:02d}"
+        )
     )
 
 
@@ -1674,7 +2198,7 @@ with c3:
 
 
 # =============================================================
-# DATA FRESHNESS
+# DATA HEALTH
 # =============================================================
 
 st.divider()
@@ -1689,6 +2213,10 @@ csv_age = get_file_age(
 
 frame_age = get_file_age(
     LIVE_FRAME_PATH
+)
+
+event_age = get_file_age(
+    EVENT_FILE_PATH
 )
 
 c1, c2, c3 = st.columns(
@@ -1732,9 +2260,32 @@ with c2:
 
 with c3:
 
-    st.info(
-        "🔄 Auto refresh: 2 seconds"
-    )
+    if (
+        os.path.exists(
+            EVENT_FILE_PATH
+        )
+        and event_age <= 5
+    ):
+
+        st.success(
+            f"🟢 Event log active "
+            f"({event_age:.1f}s)"
+        )
+
+    elif os.path.exists(
+        EVENT_FILE_PATH
+    ):
+
+        st.warning(
+            f"🟡 Event log stale "
+            f"({event_age:.1f}s)"
+        )
+
+    else:
+
+        st.info(
+            "ℹ️ No event log yet"
+        )
 
 
 # =============================================================
@@ -1744,8 +2295,8 @@ with c3:
 st.divider()
 
 st.caption(
-    "ADAPTIVE-DMS v1.5 | "
-    "Real-Time Driver Monitoring Dashboard"
+    "ADAPTIVE-DMS v1.6 | "
+    "Real-Time Driver Monitoring + Event Timeline"
 )
 
 st.caption(
