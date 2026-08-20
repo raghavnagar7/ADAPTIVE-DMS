@@ -1972,30 +1972,34 @@ def main():
             )
 
             # =================================================
-            # HIGH-QUALITY ADAPTIVE DASHBOARD OVERLAY
+            # CLEAN ADAPTIVE DASHBOARD OVERLAY
             # =================================================
-            # The previous overlay used fixed coordinates for a
-            # 960x540 frame. When the window was enlarged/fullscreen,
-            # text became crowded and several lines overlapped.
+            # The dashboard is split into four fixed regions with
+            # explicit vertical spacing.  The previous version placed
+            # too many right-side sections in the same bottom panel,
+            # which caused text collisions at 1280x720/fullscreen.
             #
-            # This dashboard:
-            #   - uses the actual frame size
-            #   - uses anti-aliased text
-            #   - keeps safe margins between sections
-            #   - uses translucent panels for readability
-            #   - is designed for 16:9 1280x720 capture
+            # Layout:
+            #   TOP-LEFT     = Driver metrics
+            #   TOP-RIGHT    = Fusion / GRU
+            #   BOTTOM-LEFT  = Orientation + Steering
+            #   BOTTOM-RIGHT = Safety + Physiology + Intervention
+            #
+            # The bottom-right panel uses two columns so that the
+            # Safety Decision Engine and Physiological Signals do not
+            # compete for the same vertical space.
             # =================================================
 
             h, w = frame.shape[:2]
 
             # ---------- Helpers ----------
 
-            def dashboard_panel(x1, y1, x2, y2, alpha=0.48):
+            def dashboard_panel(x1, y1, x2, y2, alpha=0.45):
                 overlay = frame.copy()
                 cv2.rectangle(
                     overlay,
-                    (x1, y1),
-                    (x2, y2),
+                    (int(x1), int(y1)),
+                    (int(x2), int(y2)),
                     (18, 18, 18),
                     -1,
                 )
@@ -2012,9 +2016,9 @@ def main():
                 text_value,
                 x,
                 y,
-                scale=0.62,
+                scale=0.52,
                 color=(255, 255, 255),
-                thickness=2,
+                thickness=1,
             ):
                 cv2.putText(
                     frame,
@@ -2027,14 +2031,20 @@ def main():
                     cv2.LINE_AA,
                 )
 
-            # Column layout adapts to the actual frame.
+            # ---------- Adaptive geometry ----------
+
             left_x = max(24, int(w * 0.025))
             divider_x = int(w * 0.515)
-            right_x = divider_x + 28
+            right_x = divider_x + 24
 
-            # Keep panels away from the very edge.
-            left_panel_right = divider_x - 20
+            left_panel_right = divider_x - 18
             right_panel_right = w - 24
+
+            top_y1 = 18
+            top_y2 = int(h * 0.41)
+
+            bottom_y1 = int(h * 0.43)
+            bottom_y2 = h - 56
 
             # ---------- Values ----------
 
@@ -2074,13 +2084,6 @@ def main():
             steering_rate = safe_float(
                 steering_values.get(
                     "steering_rate",
-                    0.0,
-                )
-            )
-
-            steering_variability = safe_float(
-                steering_values.get(
-                    "steering_variability",
                     0.0,
                 )
             )
@@ -2211,11 +2214,6 @@ def main():
                 )
             )
 
-            driver_state_reason = driver_state_values.get(
-                "state_reason",
-                "NO_DATA",
-            )
-
             safety_decision = safety_decision_values.get(
                 "decision",
                 "NO_ACTION",
@@ -2240,11 +2238,6 @@ def main():
                     "reliability",
                     0.0,
                 )
-            )
-
-            safety_decision_reason = safety_decision_values.get(
-                "reason",
-                "NO_DATA",
             )
 
             intervention_priority = intervention_priority_values.get(
@@ -2272,7 +2265,7 @@ def main():
                 0,
             )
 
-            # ---------- Risk color ----------
+            # ---------- Colors ----------
 
             if risk_level == "NORMAL":
                 risk_color = (0, 255, 0)
@@ -2296,28 +2289,37 @@ def main():
             else:
                 driver_state_color = (255, 255, 255)
 
+            if safety_decision == "NO_ACTION":
+                decision_color = (0, 255, 0)
+            elif safety_decision == "ADVISORY":
+                decision_color = (0, 255, 255)
+            elif safety_decision == "WARNING":
+                decision_color = (0, 165, 255)
+            elif safety_decision == "URGENT_WARNING":
+                decision_color = (0, 100, 255)
+            else:
+                decision_color = (0, 0, 255)
+
+            steering_color = (
+                (0, 255, 0)
+                if steering_irregularity < 0.40
+                else (
+                    (0, 165, 255)
+                    if steering_irregularity < 0.75
+                    else (0, 0, 255)
+                )
+            )
+
+            intervention_color = risk_color
+
             # ---------- Panels ----------
-            #
-            # Top-left: driver metrics
-            # Bottom-left: pose/gaze + steering
-            # Top-right: fusion/GRU
-            # Bottom-right: physiological + intervention
-            #
-            # These panels deliberately do not cover the center
-            # face area.
-
-            top_y1 = 18
-            top_y2 = int(h * 0.43)
-
-            bottom_y1 = int(h * 0.45)
-            bottom_y2 = h - 54
 
             dashboard_panel(
                 left_x - 12,
                 top_y1,
                 left_panel_right,
                 top_y2,
-                alpha=0.42,
+                alpha=0.40,
             )
 
             dashboard_panel(
@@ -2325,7 +2327,7 @@ def main():
                 bottom_y1,
                 left_panel_right,
                 bottom_y2,
-                alpha=0.42,
+                alpha=0.40,
             )
 
             dashboard_panel(
@@ -2333,7 +2335,7 @@ def main():
                 top_y1,
                 right_panel_right,
                 top_y2,
-                alpha=0.48,
+                alpha=0.46,
             )
 
             dashboard_panel(
@@ -2341,18 +2343,21 @@ def main():
                 bottom_y1,
                 right_panel_right,
                 bottom_y2,
-                alpha=0.48,
+                alpha=0.46,
             )
 
-            # ---------- Top-left: DRIVER ----------
+            # =================================================
+            # TOP-LEFT: DRIVER MONITOR
+            # =================================================
+
             y = 48
-            line = 38
+            line = 34
 
             dashboard_text(
                 "DRIVER MONITOR",
                 left_x,
                 y,
-                0.72,
+                0.68,
                 (255, 255, 255),
                 2,
             )
@@ -2364,46 +2369,42 @@ def main():
                     f"EAR: {safe_float(driver_values['ear']):.3f}",
                     left_x,
                     y,
-                    0.60,
+                    0.56,
                     (0, 255, 0),
                     2,
                 )
 
                 y += line
-
                 dashboard_text(
                     f"MAR: {safe_float(driver_values['mar']):.3f}",
                     left_x,
                     y,
-                    0.60,
+                    0.56,
                     (0, 255, 0),
                     2,
                 )
 
                 y += line
-
                 dashboard_text(
                     f"PERCLOS: {safe_float(driver_values['perclos']):.3f}",
                     left_x,
                     y,
-                    0.60,
+                    0.56,
                     (0, 255, 0),
                     2,
                 )
 
                 y += line
-
                 dashboard_text(
                     f"Blinks: {driver_values.get('blink_count', 0)}",
                     left_x,
                     y,
-                    0.60,
+                    0.56,
                     (0, 255, 0),
                     2,
                 )
 
                 y += line
-
                 eye_status = (
                     "EYES CLOSED"
                     if driver_values.get("eyes_closed", False)
@@ -2420,24 +2421,23 @@ def main():
                     eye_status,
                     left_x,
                     y,
-                    0.58,
+                    0.54,
                     eye_color,
                     2,
                 )
 
                 y += line
-
                 dashboard_text(
                     f"Eye Closed: {current_eye_closure_duration:.1f}s",
                     left_x,
                     y,
-                    0.50,
+                    0.46,
                     (
                         (0, 0, 255)
                         if current_eye_closure_duration >= 1.0
                         else (255, 255, 255)
                     ),
-                    2,
+                    1,
                 )
 
                 if driver_values.get("yawning", False):
@@ -2446,7 +2446,7 @@ def main():
                         "YAWNING",
                         left_x,
                         y,
-                        0.58,
+                        0.52,
                         (0, 165, 255),
                         2,
                     )
@@ -2457,482 +2457,469 @@ def main():
                         f"MICROSLEEP {safe_float(driver_values.get('microsleep_duration', 0.0)):.1f}s",
                         left_x,
                         y,
-                        0.54,
+                        0.48,
                         (0, 0, 255),
                         2,
                     )
-
             else:
                 dashboard_text(
                     "NO FACE DETECTED",
                     left_x,
                     y,
-                    0.62,
+                    0.56,
                     (0, 0, 255),
                     2,
                 )
 
-            # ---------- Bottom-left: POSE / GAZE ----------
-            y = bottom_y1 + 34
+            # =================================================
+            # BOTTOM-LEFT: ORIENTATION
+            # =================================================
+
+            y = bottom_y1 + 32
 
             dashboard_text(
                 "DRIVER ORIENTATION",
                 left_x,
                 y,
-                0.62,
+                0.58,
                 (255, 255, 255),
                 2,
             )
 
-            y += 34
+            y += 30
 
             if pose_values.get("valid", False):
                 dashboard_text(
                     f"Pitch: {safe_float(pose_values.get('pitch')):.1f}",
                     left_x,
                     y,
-                    0.52,
+                    0.48,
                     (255, 255, 0),
-                    2,
+                    1,
                 )
 
-                y += 30
-
+                y += 27
                 dashboard_text(
                     f"Yaw: {safe_float(pose_values.get('yaw')):.1f}",
                     left_x,
                     y,
-                    0.52,
+                    0.48,
                     (255, 255, 0),
-                    2,
+                    1,
                 )
 
-                y += 30
-
+                y += 27
                 dashboard_text(
                     f"Roll: {safe_float(pose_values.get('roll')):.1f}",
                     left_x,
                     y,
-                    0.52,
+                    0.48,
                     (255, 255, 0),
-                    2,
+                    1,
                 )
 
-            y += 30
+            y += 29
 
             dashboard_text(
                 f"Gaze: {gaze_values.get('gaze_direction', 'UNKNOWN')}",
                 left_x,
                 y,
-                0.56,
+                0.50,
                 (255, 0, 255),
                 2,
             )
 
-            y += 32
-
             if gaze_values.get("prolonged_gaze_away", False):
+                y += 28
                 dashboard_text(
                     f"GAZE AWAY {safe_float(gaze_values.get('gaze_away_duration', 0.0)):.1f}s",
                     left_x,
                     y,
-                    0.50,
+                    0.44,
                     (0, 0, 255),
-                    2,
+                    1,
                 )
 
-            # ---------- Bottom-left: STEERING ----------
-            steering_x = int(w * 0.27)
+            # =================================================
+            # BOTTOM-LEFT: STEERING
+            # =================================================
+
+            steering_x = int(w * 0.275)
+            steering_y = bottom_y1 + 32
 
             dashboard_text(
                 "STEERING",
                 steering_x,
-                bottom_y1 + 34,
-                0.62,
+                steering_y,
+                0.58,
                 (255, 255, 255),
                 2,
             )
 
+            steering_y += 29
             dashboard_text(
                 f"Angle: {steering_angle_display:.1f}",
                 steering_x,
-                bottom_y1 + 66,
-                0.46,
+                steering_y,
+                0.43,
                 (255, 255, 255),
                 1,
             )
 
+            steering_y += 26
             dashboard_text(
                 f"Change: {steering_change:.1f}",
                 steering_x,
-                bottom_y1 + 94,
-                0.46,
+                steering_y,
+                0.43,
                 (255, 255, 255),
                 1,
             )
 
+            steering_y += 26
             dashboard_text(
                 f"Rate: {steering_rate:.1f}",
                 steering_x,
-                bottom_y1 + 122,
-                0.46,
+                steering_y,
+                0.43,
                 (255, 255, 255),
                 1,
             )
 
-            steering_color = (
-                (0, 255, 0)
-                if steering_irregularity < 0.40
-                else (
-                    (0, 165, 255)
-                    if steering_irregularity < 0.75
-                    else (0, 0, 255)
-                )
-            )
-
+            steering_y += 26
             dashboard_text(
                 f"Irregularity: {steering_irregularity:.2f}",
                 steering_x,
-                bottom_y1 + 150,
-                0.44,
+                steering_y,
+                0.42,
                 steering_color,
                 1,
             )
 
+            steering_y += 26
             dashboard_text(
                 f"State: {steering_state}",
                 steering_x,
-                bottom_y1 + 178,
-                0.44,
+                steering_y,
+                0.42,
                 (255, 255, 255),
                 1,
             )
 
+            steering_y += 26
             dashboard_text(
                 f"Reliability: {steering_reliability:.2f}",
                 steering_x,
-                bottom_y1 + 206,
-                0.44,
+                steering_y,
+                0.42,
                 (255, 255, 255),
                 1,
             )
 
-            # ---------- Top-right: SYSTEM / FUSION ----------
+            # =================================================
+            # TOP-RIGHT: ADAPTIVE DMS / FUSION / GRU
+            # =================================================
+
             y = 48
 
             dashboard_text(
                 "ADAPTIVE DMS",
                 right_x,
                 y,
-                0.72,
+                0.68,
                 (255, 255, 255),
                 2,
             )
 
-            y += 38
-
+            y += 34
             dashboard_text(
                 f"Fusion Risk: {fusion_fatigue_risk:.2f}",
                 right_x,
                 y,
-                0.60,
+                0.54,
                 (0, 255, 255),
                 2,
             )
 
-            y += 34
-
+            y += 28
             dashboard_text(
                 f"Risk Level: {risk_level}",
                 right_x,
                 y,
-                0.58,
+                0.52,
                 risk_color,
                 2,
             )
 
-            y += 34
-
+            y += 28
             dashboard_text(
                 f"GRU Risk: {gru_prediction:.2f}",
                 right_x,
                 y,
-                0.58,
+                0.50,
                 (255, 0, 255),
                 2,
             )
 
-            y += 32
-
+            y += 27
             dashboard_text(
                 f"GRU Class: {gru_classification}",
                 right_x,
                 y,
-                0.52,
+                0.45,
                 (255, 0, 255),
-                2,
+                1,
             )
 
-            y += 30
-
+            y += 25
             dashboard_text(
                 f"GRU Confidence: {gru_confidence:.2f}",
                 right_x,
                 y,
-                0.47,
+                0.42,
                 (255, 255, 255),
                 1,
             )
 
-            y += 28
-
+            y += 25
             dashboard_text(
                 f"GRU Sequence: {gru_sequence_length}/{gru_sequence_capacity}",
                 right_x,
                 y,
-                0.47,
+                0.42,
                 (255, 255, 255),
                 1,
             )
 
-            y += 28
-
+            y += 25
             dashboard_text(
                 f"Reliability: {overall_reliability:.2f}",
                 right_x,
                 y,
-                0.47,
+                0.42,
                 (255, 255, 255),
                 1,
             )
 
-            y += 28
-
+            y += 25
             dashboard_text(
                 f"Temporal: {temporal_state}",
                 right_x,
                 y,
-                0.48,
+                0.42,
                 (255, 255, 255),
                 1,
             )
 
-            y += 30
+            # =================================================
+            # BOTTOM-RIGHT: SAFETY DECISION
+            # =================================================
 
-            dashboard_text(
-                f"Driver State: {driver_state}",
-                right_x,
-                y,
-                0.54,
-                driver_state_color,
-                2,
-            )
-
-            y += 28
-
-            dashboard_text(
-                f"State Score: {driver_state_score:.2f} | Confidence: {driver_state_confidence:.2f}",
-                right_x,
-                y,
-                0.40,
-                (255, 255, 255),
-                1,
-            )
-
-            y += 28
-
-            dashboard_text(
-                f"Stress: {stress_score:.2f} ({stress_level}) | Rel: {stress_reliability:.2f}",
-                right_x,
-                y,
-                0.40,
-                (255, 0, 255),
-                1,
-            )
-
-            # ---------- Bottom-right: SAFETY DECISION ----------
-            y = bottom_y1 + 34
+            safety_x = right_x
+            safety_y = bottom_y1 + 31
 
             dashboard_text(
                 "SAFETY DECISION ENGINE",
-                right_x,
-                y,
-                0.58,
+                safety_x,
+                safety_y,
+                0.54,
                 (255, 255, 255),
                 2,
             )
 
-            y += 30
-
-            if safety_decision == "NO_ACTION":
-                decision_color = (0, 255, 0)
-            elif safety_decision == "ADVISORY":
-                decision_color = (0, 255, 255)
-            elif safety_decision == "WARNING":
-                decision_color = (0, 165, 255)
-            elif safety_decision == "URGENT_WARNING":
-                decision_color = (0, 100, 255)
-            else:
-                decision_color = (0, 0, 255)
-
+            safety_y += 28
             dashboard_text(
                 f"Decision: {safety_decision}",
-                right_x,
-                y,
-                0.48,
+                safety_x,
+                safety_y,
+                0.44,
                 decision_color,
                 2,
             )
 
-            y += 28
-
+            safety_y += 26
             dashboard_text(
                 f"Score: {safety_decision_score:.2f} | Conf: {safety_decision_confidence:.2f}",
-                right_x,
-                y,
-                0.40,
+                safety_x,
+                safety_y,
+                0.37,
                 (255, 255, 255),
                 1,
             )
 
-            y += 26
-
+            safety_y += 25
             dashboard_text(
                 f"Rel: {safety_decision_reliability:.2f} | Priority: {intervention_priority}",
-                right_x,
-                y,
-                0.40,
+                safety_x,
+                safety_y,
+                0.37,
                 (255, 255, 255),
                 1,
             )
 
-            y += 26
+            safety_y += 25
+            dashboard_text(
+                f"Driver: {driver_state}",
+                safety_x,
+                safety_y,
+                0.43,
+                driver_state_color,
+                2,
+            )
 
+            safety_y += 25
+            dashboard_text(
+                f"State: {driver_state_score:.2f} | Conf: {driver_state_confidence:.2f}",
+                safety_x,
+                safety_y,
+                0.36,
+                (255, 255, 255),
+                1,
+            )
+
+            safety_y += 25
             dashboard_text(
                 f"Action: {intervention_priority_action}",
-                right_x,
-                y,
-                0.40,
+                safety_x,
+                safety_y,
+                0.38,
                 (255, 255, 255),
                 1,
             )
 
-            # ---------- Bottom-right: PHYSIOLOGY / SAFETY ----------
-            y += 34
+            # =================================================
+            # BOTTOM-RIGHT: PHYSIOLOGICAL SIGNALS
+            # =================================================
+
+            phys_x = right_x + int((right_panel_right - right_x) * 0.52)
+            phys_y = bottom_y1 + 31
 
             dashboard_text(
-                "PHYSIOLOGICAL SIGNALS",
-                right_x,
-                y,
-                0.62,
+                "PHYSIOLOGICAL",
+                phys_x,
+                phys_y,
+                0.52,
                 (255, 255, 255),
                 2,
             )
 
-            y += 34
-
+            phys_y += 28
             dashboard_text(
-                f"Heart Rate: {heart_rate_bpm:.1f} BPM",
-                right_x,
-                y,
-                0.52,
+                f"HR: {heart_rate_bpm:.1f} BPM",
+                phys_x,
+                phys_y,
+                0.43,
                 (0, 255, 255),
                 2,
             )
 
+            phys_y += 25
             dashboard_text(
                 f"HR Rel: {heart_rate_reliability:.2f}",
-                right_x + 265,
-                y,
-                0.42,
+                phys_x,
+                phys_y,
+                0.37,
                 (255, 255, 255),
                 1,
             )
 
-            y += 30
-
+            phys_y += 25
             dashboard_text(
-                f"Respiration: {respiration_bpm:.1f} /min",
-                right_x,
-                y,
-                0.52,
+                f"Resp: {respiration_bpm:.1f}/min",
+                phys_x,
+                phys_y,
+                0.43,
                 (0, 255, 255),
                 2,
             )
 
+            phys_y += 25
             dashboard_text(
                 f"Resp Rel: {respiration_reliability:.2f}",
-                right_x + 265,
-                y,
-                0.42,
+                phys_x,
+                phys_y,
+                0.37,
                 (255, 255, 255),
                 1,
             )
 
-            y += 36
+            phys_y += 25
+            dashboard_text(
+                f"Stress: {stress_score:.2f}",
+                phys_x,
+                phys_y,
+                0.41,
+                (255, 0, 255),
+                1,
+            )
+
+            phys_y += 24
+            dashboard_text(
+                f"Stress Rel: {stress_reliability:.2f}",
+                phys_x,
+                phys_y,
+                0.36,
+                (255, 255, 255),
+                1,
+            )
+
+            # =================================================
+            # BOTTOM-RIGHT: SAFETY INTERVENTION
+            # =================================================
+
+            intervention_y = bottom_y1 + 205
 
             dashboard_text(
                 "SAFETY INTERVENTION",
                 right_x,
-                y,
-                0.58,
+                intervention_y,
+                0.52,
                 (255, 255, 255),
                 2,
             )
 
-            y += 32
-
-            intervention_color = risk_color
-
+            intervention_y += 28
             dashboard_text(
                 f"Level: {intervention_level}",
                 right_x,
-                y,
-                0.52,
+                intervention_y,
+                0.46,
                 intervention_color,
                 2,
             )
 
-            y += 30
-
+            intervention_y += 25
             dashboard_text(
                 f"Action: {intervention_action}",
                 right_x,
-                y,
-                0.44,
+                intervention_y,
+                0.38,
                 (255, 255, 255),
                 1,
             )
 
-            y += 28
-
+            intervention_y += 24
             dashboard_text(
-                f"Alerts: {intervention_values.get('alert_count', 0)}",
+                f"Alerts: {intervention_values.get('alert_count', 0)} | Events: {event_count}",
                 right_x,
-                y,
-                0.44,
+                intervention_y,
+                0.38,
                 (255, 255, 255),
                 1,
             )
 
-            y += 28
+            # =================================================
+            # WARNING AREA
+            # =================================================
 
-            dashboard_text(
-                f"Events: {event_count}",
-                right_x,
-                y,
-                0.44,
-                (255, 255, 255),
-                1,
-            )
+            warning_y = bottom_y2 - 24
 
-            # ---------- Warning overlays ----------
             if current_eye_closure_duration >= 1.0:
                 dashboard_text(
                     "EYE CLOSURE WARNING",
                     right_x,
-                    h - 102,
-                    0.50,
+                    warning_y,
+                    0.44,
                     (0, 0, 255),
                     2,
                 )
@@ -2952,8 +2939,8 @@ def main():
                         "HIGH RISK",
                     ),
                     right_x,
-                    h - 72,
-                    0.48,
+                    warning_y,
+                    0.44,
                     (0, 0, 255),
                     2,
                 )
@@ -2965,14 +2952,17 @@ def main():
                         "MODERATE RISK",
                     ),
                     right_x,
-                    h - 72,
-                    0.44,
+                    warning_y,
+                    0.40,
                     (0, 165, 255),
                     2,
                 )
 
-            # ---------- Bottom status bar ----------
-            status_y = h - 18
+            # =================================================
+            # BOTTOM STATUS BAR
+            # =================================================
+
+            status_y = h - 16
 
             dashboard_text(
                 (
@@ -2982,7 +2972,7 @@ def main():
                 ),
                 left_x,
                 status_y,
-                0.46,
+                0.42,
                 (
                     (0, 255, 0)
                     if face_detected
@@ -2993,29 +2983,29 @@ def main():
 
             dashboard_text(
                 "A: LEFT | D: RIGHT | S: CENTER | Q: QUIT",
-                int(w * 0.28),
+                int(w * 0.30),
                 status_y,
-                0.42,
+                0.36,
+                (255, 255, 255),
+                1,
+            )
+
+            dashboard_text(
+                "ADAPTIVE-DMS | STEP 9C",
+                int(w * 0.70),
+                status_y,
+                0.34,
                 (255, 255, 255),
                 1,
             )
 
             dashboard_text(
                 f"FPS: {fps:.1f}",
-                w - 120,
-                38,
-                0.55,
+                w - 115,
+                34,
+                0.48,
                 (255, 255, 255),
                 2,
-            )
-
-            dashboard_text(
-                "ADAPTIVE-DMS | STEP 9C",
-                int(w * 0.40),
-                status_y,
-                0.38,
-                (255, 255, 255),
-                1,
             )
 
             # =================================================
